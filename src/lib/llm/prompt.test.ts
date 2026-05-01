@@ -63,4 +63,29 @@ describe('buildMessages', () => {
     });
     expect(msgs.find((m) => m.role === 'system')).toBeUndefined();
   });
+
+  it('lists tagged entities under a Linked entities section', () => {
+    const msgs = buildMessages({
+      noteTitle: 'Scene draft',
+      taggedEntities: [
+        { name: 'Iria', type: 'Character' },
+        { name: 'Old fortress', type: 'Location' },
+      ],
+      history: [],
+      userMessage: 'next?',
+    });
+    expect(msgs[0].content).toContain('# Linked entities');
+    expect(msgs[0].content).toContain('- Iria (Character)');
+    expect(msgs[0].content).toContain('- Old fortress (Location)');
+  });
+
+  it('omits Linked entities section when no tags', () => {
+    const msgs = buildMessages({
+      noteTitle: 'Scene draft',
+      taggedEntities: [],
+      history: [],
+      userMessage: 'next?',
+    });
+    expect(msgs[0].content).not.toContain('Linked entities');
+  });
 });

@@ -67,15 +67,25 @@ export function WorldDetailScreen() {
             {worldQ.data?.name ?? 'Loading…'}
           </h1>
         </div>
-        <button
-          type="button"
-          onClick={onCreate}
-          disabled={createNote.isPending}
-          className="hidden bg-accent px-4 py-2 font-medium text-accent-fg disabled:opacity-50 sm:inline-flex"
-          data-testid="create-note"
-        >
-          {createNote.isPending ? 'Creating…' : '+ Note'}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/worlds/$worldId/entities"
+            params={{ worldId }}
+            className="bg-bg-subtle px-3 py-2 text-sm hover:bg-bg-panel"
+            data-testid="nav-entities"
+          >
+            Entities
+          </Link>
+          <button
+            type="button"
+            onClick={onCreate}
+            disabled={createNote.isPending}
+            className="hidden bg-accent px-4 py-2 font-medium text-accent-fg disabled:opacity-50 sm:inline-flex"
+            data-testid="create-note"
+          >
+            {createNote.isPending ? 'Creating…' : '+ Note'}
+          </button>
+        </div>
       </header>
 
       <section

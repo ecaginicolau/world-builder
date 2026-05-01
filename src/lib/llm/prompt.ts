@@ -21,6 +21,14 @@ export function buildMessages(req: ChatRequest): ChatMessage[] {
     systemParts.push(lines.join('\n'));
   }
 
+  if (req.taggedEntities && req.taggedEntities.length > 0) {
+    const lines = ['# Linked entities (tagged on this note)'];
+    for (const e of req.taggedEntities) {
+      lines.push(`- ${e.name} (${e.type})`);
+    }
+    systemParts.push(lines.join('\n'));
+  }
+
   const messages: ChatMessage[] = [];
   if (systemParts.length > 0) {
     messages.push({

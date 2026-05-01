@@ -2,16 +2,24 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useNote, useDeleteNote, useUpdateNote } from '@/lib/queries/notes';
 import { useWorld } from '@/lib/queries/worlds';
+import { useEntities } from '@/lib/queries/entities';
+import { useEntityTypes } from '@/lib/queries/entityTypes';
+import { useNoteEntities } from '@/lib/queries/noteEntities';
 import { useUiStore } from '@/lib/uiStore';
 import { NoteEditor } from './NoteEditor';
 import { htmlToPlainText } from '@/lib/html';
 import { ChatPanel } from './ChatPanel';
+import { NoteEntitiesPanel } from './NoteEntitiesPanel';
+import type { TaggedEntity } from '@/lib/llm';
 
 export function NoteScreen() {
   const { worldId, noteId } = useParams({ from: '/worlds/$worldId/notes/$noteId' });
   const navigate = useNavigate();
   const noteQ = useNote(noteId);
   const worldQ = useWorld(worldId);
+  const entitiesQ = useEntities(worldId);
+  const typesQ = useEntityTypes(worldId);
+  const noteEntitiesQ = useNoteEntities(noteId);
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
   const chatPanelOpen = useUiStore((s) => s.chatPanelOpen);
@@ -24,6 +32,20 @@ export function NoteScreen() {
     if (!noteQ.data) return '';
     return htmlToPlainText(noteQ.data.content);
   }, [noteQ.data]);
+
+  const taggedEntitiesForLlm = useMemo<TaggedEntity[]>(() => {
+    const links = noteEntitiesQ.data ?? [];
+    if (links.length === 0) return [];
+    const typesById = new Map((typesQ.data ?? []).map((t) => [t.id, t]));
+    const entitiesById = new Map((entitiesQ.data ?? []).map((e) => [e.id, e]));
+    const out: TaggedEntity[] = [];
+    for (const l of links) {
+      const e = entitiesById.get(l.entity_id);
+      if (!e) continue;
+      out.push({ name: e.name, type: typesById.get(e.entity_type_id)?.name ?? 'Unknown' });
+    }
+    return out;
+  }, [noteEntitiesQ.data, entitiesQ.data, typesQ.data]);
 
   function onTitleChange(value: string) {
     setTitle(value);
@@ -94,11 +116,12 @@ export function NoteScreen() {
           chatPanelOpen ? 'grid-cols-1 md:grid-cols-[2fr_1fr]' : 'grid-cols-1'
         }`}
       >
-        <div className="min-h-0 overflow-y-auto">
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
           <NoteEditor
             initialContent={noteQ.data.content}
             onChange={onContentChange}
           />
+          <NoteEntitiesPanel noteId={noteId} worldId={worldId} />
         </div>
         {chatPanelOpen ? (
           <div className="min-h-0">
@@ -108,6 +131,7 @@ export function NoteScreen() {
               worldMemory={worldQ.data?.world_memory ?? worldQ.data?.description ?? undefined}
               noteTitle={currentTitle || undefined}
               noteContextText={noteTextForLlm}
+              taggedEntities={taggedEntitiesForLlm}
             />
           </div>
         ) : null}

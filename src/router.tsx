@@ -10,6 +10,7 @@ import { IndexRoute } from './routes/IndexRoute';
 import { WorldsScreen } from './features/worlds/WorldsScreen';
 import { WorldDetailScreen } from './features/notes/WorldDetailScreen';
 import { NoteScreen } from './features/notes/NoteScreen';
+import { EntitiesScreen } from './features/entities/EntitiesScreen';
 import { Login } from './features/auth/Login';
 import { supabase } from './lib/supabase';
 
@@ -61,12 +62,20 @@ const noteRoute = createRoute({
   component: NoteScreen,
 });
 
+const entitiesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/entities',
+  beforeLoad: requireAuth,
+  component: EntitiesScreen,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   worldsRoute,
   worldDetailRoute,
   noteRoute,
+  entitiesRoute,
 ]);
 
 export const router = createRouter({ routeTree });

@@ -12,6 +12,7 @@ import {
   type ChatMessage as LlmChatMessage,
   type ModelTier,
   type ReasoningEffort,
+  type TaggedEntity,
 } from '@/lib/llm';
 import type { ChatThread } from './types';
 
@@ -21,6 +22,7 @@ interface Props {
   worldMemory?: string;
   noteTitle?: string;
   noteContextText: string;
+  taggedEntities?: TaggedEntity[];
 }
 
 const TIERS: { value: ModelTier; label: string }[] = [
@@ -37,6 +39,7 @@ export function ChatPanel({
   worldMemory,
   noteTitle,
   noteContextText,
+  taggedEntities,
 }: Props) {
   const session = useSession();
   const threadsQ = useThreads(noteId);
@@ -119,6 +122,7 @@ export function ChatPanel({
         worldMemory,
         noteTitle,
         noteContext: noteContextText,
+        taggedEntities,
         history,
         userMessage: userText,
         tier,

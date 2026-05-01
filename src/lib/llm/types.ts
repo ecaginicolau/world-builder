@@ -20,10 +20,16 @@ export type ModelTier = 'cheapest' | 'medium' | 'best';
  */
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
+export interface TaggedEntity {
+  name: string;
+  type: string;
+}
+
 export interface ChatRequest {
   worldMemory?: string;
   noteTitle?: string;
   noteContext?: string;
+  taggedEntities?: TaggedEntity[];
   history: ChatMessage[];
   userMessage: string;
   /** Default 'medium'. */

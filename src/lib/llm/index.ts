@@ -10,6 +10,7 @@ export type {
   LlmProvider,
   ModelTier,
   ReasoningEffort,
+  TaggedEntity,
 } from './types';
 export { buildMessages } from './prompt';
 

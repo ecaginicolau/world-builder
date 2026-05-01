@@ -2,6 +2,42 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 2 Phase A code-complete)
+
+**Slice 2 Phase A code-complete** — entity_types + entities CRUD + tag d'entités sur une note + injection dans le prompt LLM. Reste **Phase B (1 min user)** pour appliquer V003 et tester live.
+
+### Phase B Slice 2
+
+| # | Action | Où |
+|---|---|---|
+| B.1 | Appliquer `supabase/migrations/V003__slice_2_entities.sql` | Dashboard → SQL editor |
+| B.2 | Pilote live : créer types/entities, tag sur une note, lancer chat avec entities en contexte | App + Chrome |
+
+Pas de nouveau secret, pas d'Edge Function à déployer.
+
+### Validation locale (avant V003)
+
+- typecheck ✓ · lint ✓ · 18 Vitest ✓ · 4 Playwright ✓ · build prod ✓
+- Pilote Chrome : route `/worlds/$id/entities` rend, formulaire create types + entities visible, états d'erreur propres tant que V003 pas appliquée ("Could not find the table 'public.entity_types' in the schema cache"). Pas de console error sur le rendu.
+
+### Ce qui a été fait dans Slice 2
+
+- **V003** : `entity_types` (jsonb fields default `[]`), `entities` (name + entity_type_id + aliases/tags text[]), `note_entities` (pivot manual tag) + RLS owner-scoped + indexes (gin sur aliases/tags) + trigger updated_at.
+- **Routes** : nouvelle route `/worlds/$worldId/entities` ; lien "Entities" ajouté dans le header de WorldDetailScreen.
+- **EntitiesScreen** : section types (input + chip list, suppression bloquée si entities existent du type), section entities (input + select type + Add, groupées par type, edit inline, delete).
+- **NoteEntitiesPanel** : chip picker dans NoteScreen sous l'éditeur. Recherche locale par name ou type. Tag/untag instantané.
+- **Prompt** : nouveau bloc `# Linked entities` avec lignes `- Name (Type)` quand des entities sont taggées. Section omise si liste vide.
+- **Tests prompt** : 2 nouveaux Vitest pour le bloc Linked entities (avec et sans tags).
+
+### Décisions unilatérales Slice 2 (cf. `docs/slice-2-plan.md`)
+
+- Pas d'icon ni de fields dynamiques sur entity_types (juste `name`)
+- Pas d'aliases/tags éditables (colonnes existent, vides par défaut, prêtes pour Slice 3 auto-extraction)
+- Suppression entity_type → blocage si entities existent (alert + abort)
+- Format prompt : Markdown bullet list `- Name (Type)`
+
+---
+
 ## Status (2026-05-01, Slice 1 livré end-to-end + polish autonome)
 
 **Slice 1 livré, Phase A + Phase B + polish autonome validés en pilote Chrome live avec OpenAI.** Le concept central (note + chat IA contextualisé sur world memory) marche — première étape du produit en place.
@@ -122,7 +158,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 |---|---|---|
 | **0** ✅ | Login Supabase (magic link), créer/lister des "worlds" vides, déployé en PWA | La stack tient debout |
 | **1** ✅⭐ | **Quick capture + Chat IA sur note** + world memory + tier/reasoning UI + audit log runs. Validé live OpenAI 2026-05-01. | **Concept central validé ✓** |
-| **2** | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat) | Apport du contexte structuré |
+| **2** ⏳ | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat). Phase A code-complete 2026-05-01 ; Phase B (apply V003 + smoke test) en attente. | Apport du contexte structuré |
 | **3** | **Auto-extraction d'entités** dans note/chat + promotion note → entité | Cristallisation depuis brainstorm |
 | **4** | **Hiérarchie books/parts/chapters** + promotion note → chapitre (avec Tiptap riche) | Structure narrative |
 | **5** | Timeline + ranks (events, drag to reorder, override chronological_rank) | Chronologie |
