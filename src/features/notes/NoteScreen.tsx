@@ -101,7 +101,7 @@ export function NoteScreen() {
   }
 
   return (
-    <main className="mx-auto flex h-full max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
+    <main className="mx-auto flex h-full max-w-screen-2xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <header className="flex items-center justify-between gap-2">
         <Link
           to="/worlds/$worldId"
@@ -151,8 +151,8 @@ export function NoteScreen() {
       <div
         className={`grid min-h-0 flex-1 gap-4 grid-cols-1 ${
           chatPanelOpen
-            ? 'md:grid-cols-[260px_1fr_320px]'
-            : 'md:grid-cols-[260px_1fr]'
+            ? 'md:grid-cols-[240px_1fr_300px]'
+            : 'md:grid-cols-[240px_1fr]'
         }`}
       >
         <aside className="order-2 flex min-h-0 flex-col gap-4 overflow-y-auto md:order-1">
