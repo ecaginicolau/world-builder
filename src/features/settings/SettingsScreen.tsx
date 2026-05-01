@@ -2,8 +2,14 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useUpdateWorld, useWorld } from '@/lib/queries/worlds';
 import { useUpdateUserSettings, useUserSettings } from '@/lib/queries/userSettings';
+import type { ModelTier } from '@/lib/llm';
 
 const DEFAULT_DEBOUNCE = 5000;
+const TIERS: { value: ModelTier; label: string }[] = [
+  { value: 'cheapest', label: 'Fast (cheapest)' },
+  { value: 'medium', label: 'Balanced (medium)' },
+  { value: 'best', label: 'Best (slowest, most expensive)' },
+];
 
 export function SettingsScreen() {
   const { worldId } = useParams({ from: '/worlds/$worldId/settings' });
@@ -14,12 +20,12 @@ export function SettingsScreen() {
 
   const [debounce, setDebounce] = useState<string>('');
   const [customPrompt, setCustomPrompt] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState<'global' | 'world' | null>(null);
+  const [savedFlash, setSavedFlash] = useState<'global' | 'world' | 'tiers' | null>(null);
 
   useEffect(() => {
-    const v = settingsQ.data?.autoExtractDebounceMs ?? DEFAULT_DEBOUNCE;
+    const v = settingsQ.data?.prefs.autoExtractDebounceMs ?? DEFAULT_DEBOUNCE;
     setDebounce(String(v));
-  }, [settingsQ.data?.autoExtractDebounceMs]);
+  }, [settingsQ.data?.prefs.autoExtractDebounceMs]);
 
   useEffect(() => {
     if (customPrompt === null && worldQ.data) {
@@ -27,7 +33,7 @@ export function SettingsScreen() {
     }
   }, [customPrompt, worldQ.data]);
 
-  function showSaved(which: 'global' | 'world') {
+  function showSaved(which: 'global' | 'world' | 'tiers') {
     setSavedFlash(which);
     setTimeout(() => setSavedFlash((s) => (s === which ? null : s)), 1500);
   }
@@ -36,7 +42,7 @@ export function SettingsScreen() {
     e.preventDefault();
     const ms = Number(debounce);
     if (!Number.isFinite(ms) || ms < 500 || ms > 30000) return;
-    await updateSettings.mutateAsync({ patch: { autoExtractDebounceMs: ms } });
+    await updateSettings.mutateAsync({ prefsPatch: { autoExtractDebounceMs: ms } });
     showSaved('global');
   }
 
@@ -50,6 +56,14 @@ export function SettingsScreen() {
     showSaved('world');
   }
 
+  async function onTierChange(
+    field: 'upscaleTier' | 'proposalsTier' | 'extractTier',
+    value: ModelTier,
+  ) {
+    await updateSettings.mutateAsync({ [field]: value });
+    showSaved('tiers');
+  }
+
   return (
     <main className="mx-auto flex h-full max-w-2xl flex-col gap-8 overflow-y-auto px-6 py-6">
       <header>
@@ -58,6 +72,42 @@ export function SettingsScreen() {
           {worldQ.data ? worldQ.data.name : 'Loading…'} · per-user and per-world preferences
         </p>
       </header>
+
+      <section className="space-y-3" data-testid="settings-tiers">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-muted">
+            LLM tiers per task
+          </h2>
+          {savedFlash === 'tiers' ? (
+            <span className="text-xs text-emerald-400" data-testid="tiers-saved">
+              Saved
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-fg-muted">
+          Pick the model size for each automated task. Saved as you change.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <TierField
+            label="Upscale"
+            value={settingsQ.data?.upscaleTier ?? 'best'}
+            onChange={(v) => onTierChange('upscaleTier', v)}
+            testid="tier-upscale"
+          />
+          <TierField
+            label="Proposals"
+            value={settingsQ.data?.proposalsTier ?? 'medium'}
+            onChange={(v) => onTierChange('proposalsTier', v)}
+            testid="tier-proposals"
+          />
+          <TierField
+            label="Auto-extract"
+            value={settingsQ.data?.extractTier ?? 'cheapest'}
+            onChange={(v) => onTierChange('extractTier', v)}
+            testid="tier-extract"
+          />
+        </div>
+      </section>
 
       <section className="space-y-3" data-testid="settings-global">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-muted">Global</h2>
@@ -142,5 +192,35 @@ export function SettingsScreen() {
         </form>
       </section>
     </main>
+  );
+}
+
+function TierField({
+  label,
+  value,
+  onChange,
+  testid,
+}: {
+  label: string;
+  value: ModelTier;
+  onChange: (v: ModelTier) => void;
+  testid: string;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs text-fg-muted">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as ModelTier)}
+        className="w-full bg-bg-subtle px-2 py-1 text-sm"
+        data-testid={testid}
+      >
+        {TIERS.map((t) => (
+          <option key={t.value} value={t.value}>
+            {t.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

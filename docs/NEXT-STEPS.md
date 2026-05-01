@@ -2,6 +2,50 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 7 livré et validé live)
+
+**Slice 7 livré, V009 appliquée, full flow validé live OpenAI.** Boucle écriture → mise à jour entities :
+- Le chapter n'a plus `draft`/`content` mais une **chaîne de versions de texte** (`chapter_versions`, append-only doux). v0 = draft, v1+ = upscales (généré par LLM avec user prompt) ou manual_edit (utilisateur édite + Save).
+- **`chapters.final_version_id`** pointe la version courante. Toute nouvelle version devient automatiquement final. Radio "final" dans le panneau Versions pour basculer vers une autre.
+- **Upscale** : panel droit avec textarea + Send (UX type chat). Prompt LLM = world memory + custom_prompt + entity cards résolues au `chronological_rank` du chapter + texte de la final version + user_prompt. Tier `best` par défaut. Output → nouvelle row `chapter_versions` (origin=`upscale`).
+- **Propose updates** : bouton dans le header chapter → modal scan les linked entities, LLM (json mode) retourne `{ entityId, fieldChanges, justification }[]` validé Zod. Accept = create `entity_version` au `chapter.chronological_rank` avec `source_chapter_id` + `note_excerpt = justification`. Réutilise tout le scaffold Slice 6.
+- **Tier per task** : `user_settings.{upscale,proposals,extract}_tier`, configurables dans SettingsScreen.
+
+**Demo guide** : [docs/demo/slice-7-upscale-proposals.md](./demo/slice-7-upscale-proposals.md).
+**Plan détaillé** : [docs/slice-7-plan.md](./slice-7-plan.md).
+
+### Validation live Slice 7 (2026-05-01)
+
+- ChapterScreen Confrontation à la forteresse : panneau droit Versions ⚡/Chat (tabs en haut), Versions actif par défaut, v0 — Draft visible avec radio final. Upscale form en bas. ✓
+- Upscale prompt FR ("3 phrases courtes, paysage nocturne, faits inchangés") → OpenAI gpt-5.4 (tier `best`) répondu en ~6s avec un texte respectant la consigne ("Au pied de la Vieille Forteresse, sous un ciel sans lune où le vent râpait les pierres et les herbes noires…"). v1 — Upscale créée, devient final, l'éditeur affiche le nouveau texte. Highlights des entities appliqués. ✓
+- Édition manuelle ("[edit manuel]" inséré) → bannière jaune "Unsaved manual edits" + bouton Save → v2 — Manual edit créée, final pointer bouge dessus. ✓
+- Click radio "final" sur v1 Upscale → final repasse sur v1, v2 reste en read-only. ✓
+- Propose updates → 4 entities en scope → Run analysis → 2 proposals (Maitre Sorn + Edran Voss, tous deux avec field `bio` proposé, avec justification LLM citant le chapter). Accept all → status "accepted" sur chaque card. Vérification DB : `entity_versions` créées avec `source_chapter_id = chapter.id` + `note_excerpt = justification` + `valid_from_rank = chapter.chronological_rank`. ✓
+- Settings : 3 tier selectors visibles, sauvegarde immédiate. ✓
+- Console clean (les `message channel closed` sont du bruit de l'extension Chrome).
+
+### Bugs surprise fixés en cours
+
+1. **False positive "unsaved manual edits"** sur HMR/remount : Tiptap fire `onUpdate` sur les transactions y compris programmatiques (initial setContent, decoration refresh). Fix : gate `onUpdate` avec `editor.isFocused && transaction.docChanged` dans NoteEditor — n'émet le callback parent que pour de vraies frappes utilisateur.
+2. **Ordre des versions inversé** dans le panneau (Manual edit avant Upscale alors que rank 'j' > 'U') : Postgres default collation est case-insensitive donc `.order('rank')` côté serveur cassait l'ordre byte-wise du fractional indexing. Fix : sort côté client après fetch dans `useChapterVersions`. Note : les autres tables avec `rank text` (chapters, parts, books, events, entity_versions) ont **probablement le même bug latent** mais n'ont pas mordu jusqu'ici parce que les ranks sont restés du même cas. À surveiller, fix ciblé si on en voit un autre.
+
+### Polish post-Slice 7 (live)
+
+- **Pending feedback Upscale** : `createVersion.isPending` ne couvrait QUE l'insert DB (~50ms), pas le LLM call (~5-30s) → user pouvait cliquer plusieurs fois et créer N versions. Fix : état local `upscaling` dans ChapterScreen (true du clic à fin du try/finally), passé à VersionsPanel. UI : banner purple `⟳ Upscaling… (this may take 5–30s)` + bouton qui devient `⟳ Upscaling…` avec spinner + textarea disabled. Idempotency `if (upscaling) return;` au début de `onUpscale`. Validé : double-clic pendant pending → 1 seule nouvelle version créée. Même pattern Spinner appliqué à ProposeUpdatesModal "Analyzing chapter…".
+- **Layout right panel overflow** : la VersionsPanel s'étirait à 754px et débordait la colonne 320px du grid. Cause : `<textarea>` HTML a un `cols` implicite (~20ch) qui force une largeur intrinsèque que `flex-1` ne contre pas. Fix : `min-w-0` sur le wrapper `<div className="flex-1">`, `w-full min-w-0` sur le root VersionsPanel, `w-full cols={1}` sur la textarea. Versions/Chat tabs ont maintenant la même largeur (320px).
+
+### Décisions tranchées Slice 7
+
+- **Plus de `chapters.draft` / `chapters.content`** — tout passe par `chapter_versions` ; migration data a backfillé un v0 row par chapter avec `text = ancien draft`.
+- **Pas de streaming** (loader blocking, ~5-15s pour upscale, OK). Streaming = Slice 7.x si besoin.
+- **Pas de propose-new-fields** (LLM ne propose pas d'ajouter un FieldDef au type, seulement des valeurs sur les fields existants). Slice 7.x si besoin.
+- **Upscale source = always `final`** (pas la sélectionnée) : cohérent, l'user flag ce qu'il considère canonique.
+- **Édition manuelle de v0 (draft) = autosave in-place**. Édition de toute autre version = nouvelle row au save explicite.
+- **Pas de trigger SQL `prevent_modification` sur chapter_versions** (contrairement à entity_versions) — le draft a besoin d'UPDATE et l'app est responsable de jamais update les autres.
+- **Tier per task** sur `user_settings` (3 colonnes dédiées) plutôt que dans `ui_prefs` jsonb.
+
+---
+
 ## Status (2026-05-01 PM, Slice 6 livré et validé live)
 
 **Slice 6 livré, V008 appliquée, full flow validé live.** Versioning append-only des entities + résolution "state at rank R" + vraies pages d'édition entity & entity_type + aliases enfin exposés.
@@ -465,7 +509,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 | **4** ✅ | **Hiérarchie books/parts/chapters** + promotion note → chapitre + feature parity (chat + entities + extract sur chapters). Validé live 2026-05-01. | Structure narrative ✓ |
 | **5** ✅ | **Timeline + events + reorder ↑↓** (merge chapters + events par chronological_rank, edit/delete events inline, promote note → event). Validé live 2026-05-01. | Chronologie ✓ |
 | **6** ✅ | **Versioning append-only** + résolution "state at rank R" + vraies pages d'édition entity & entity_type + aliases enfin exposés. Validé live 2026-05-01. | Évolution dans le temps ✓ |
-| **7** | **Upscale** + **Proposals** (diffs structurés sur entités depuis chapitre) | Boucle écriture → mise à jour entités |
+| **7** ✅ | **Upscale** (text versioning de chapter, prompt user-driven) + **Proposals** (diffs structurés sur entities → entity_versions). Validé live 2026-05-01. | Boucle écriture → mise à jour entities ✓ |
 | **8** | **Reader view** + summaries S/M/L + runs history + search + Chapter `published` flag | Polish + ergonomie |
 
 ⭐ Slice 1 = pivot du produit ; à viser tôt.

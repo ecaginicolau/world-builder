@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { supabase } from '@/lib/supabase';
 import { modelForTier } from './openai';
-import type { ChatMessage } from './types';
+import type { ChatMessage, ModelTier } from './types';
 
 export const entityCandidateSchema = z.object({
   name: z.string().min(1).max(200),
@@ -22,6 +22,8 @@ export interface ExtractRequest {
   existing: { id: string; name: string; type: string; aliases?: string[] }[];
   /** Known type names (e.g. ["Character", "Location"]) the LLM should pick from. */
   knownTypes: string[];
+  /** Defaults to 'cheapest'. */
+  tier?: ModelTier;
 }
 
 export function buildExtractMessages(req: ExtractRequest): ChatMessage[] {
@@ -62,7 +64,7 @@ export interface ExtractResult {
 
 export async function extractEntitiesOpenai(req: ExtractRequest): Promise<ExtractResult> {
   const messages = buildExtractMessages(req);
-  const model = modelForTier('cheapest');
+  const model = modelForTier(req.tier ?? 'cheapest');
   const { data, error } = await supabase.functions.invoke('llm-call', {
     body: {
       messages,

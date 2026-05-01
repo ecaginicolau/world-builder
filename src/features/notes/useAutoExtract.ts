@@ -51,7 +51,7 @@ export function useAutoExtract({
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
   const settingsQ = useUserSettings();
-  const debounceMs = settingsQ.data?.autoExtractDebounceMs ?? DEFAULT_DEBOUNCE_MS;
+  const debounceMs = settingsQ.data?.prefs.autoExtractDebounceMs ?? DEFAULT_DEBOUNCE_MS;
   const cached = cache.get(cacheKey);
   const [state, setState] = useState<State>(() =>
     cached
@@ -95,7 +95,12 @@ export function useAutoExtract({
             aliases: e.aliases,
           };
         });
-        const result = await extractor({ noteText: plainText, existing, knownTypes });
+        const result = await extractor({
+          noteText: plainText,
+          existing,
+          knownTypes,
+          tier: settingsQ.data?.extractTier,
+        });
         cache.set(cacheKey, { hash, candidates: result.candidates });
         setState({
           candidates: result.candidates,
@@ -116,7 +121,16 @@ export function useAutoExtract({
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [plainText, enabled, state.fromHash, entitiesQ.data, typesQ.data, cacheKey, debounceMs]);
+  }, [
+    plainText,
+    enabled,
+    state.fromHash,
+    entitiesQ.data,
+    typesQ.data,
+    cacheKey,
+    debounceMs,
+    settingsQ.data?.extractTier,
+  ]);
 
   return state;
 }

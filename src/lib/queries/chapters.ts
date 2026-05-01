@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { nextRankAfter } from '@/lib/ranks';
+import { nextRankAfter, START_RANK } from '@/lib/ranks';
 import type { Chapter } from '@/features/chapters/types';
+import { chapterVersionsKeys } from './chapterVersions';
 
 export const chaptersKeys = {
   byPart: (partId: string) => ['chapters', 'byPart', partId] as const,
@@ -62,6 +63,7 @@ interface CreateChapterInput {
   partId: string;
   ownerId: string;
   title?: string | null;
+  /** Initial draft text (becomes the v0 chapter_versions row). */
   draft?: string;
   sourceNoteId?: string | null;
 }
@@ -79,7 +81,9 @@ export function useCreateChapter() {
         (siblings ?? []).map((s: { reading_rank: string }) => ({ rank: s.reading_rank })),
       );
       const chronological_rank = reading_rank;
-      const { data, error } = await supabase
+
+      // 1. Insert the chapter row.
+      const { data: chapter, error } = await supabase
         .from('chapters')
         .insert({
           world_id: worldId,
@@ -88,17 +92,41 @@ export function useCreateChapter() {
           reading_rank,
           chronological_rank,
           title: title?.trim() || null,
-          draft: draft ?? '',
           source_note_id: sourceNoteId ?? null,
         })
         .select('*')
         .single();
       if (error) throw error;
-      return data as Chapter;
+
+      // 2. Insert v0 chapter_versions row with the initial draft text.
+      const { data: v0, error: vErr } = await supabase
+        .from('chapter_versions')
+        .insert({
+          chapter_id: chapter.id,
+          world_id: worldId,
+          owner_id: ownerId,
+          rank: START_RANK,
+          origin: 'draft',
+          text: draft ?? '',
+        })
+        .select('id')
+        .single();
+      if (vErr) throw vErr;
+
+      // 3. Set final_version_id on the chapter to point at v0.
+      const { data: updated, error: upErr } = await supabase
+        .from('chapters')
+        .update({ final_version_id: v0.id })
+        .eq('id', chapter.id)
+        .select('*')
+        .single();
+      if (upErr) throw upErr;
+      return updated as Chapter;
     },
     onSuccess: (c) => {
       void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(c.part_id) });
       void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(c.world_id) });
+      void qc.invalidateQueries({ queryKey: chapterVersionsKeys.byChapter(c.id) });
     },
   });
 }
@@ -111,17 +139,15 @@ export function useUpdateChapter() {
     {
       id: string;
       title?: string | null;
-      draft?: string;
-      content?: string;
       chronologicalRank?: string;
+      finalVersionId?: string;
     }
   >({
-    mutationFn: async ({ id, title, draft, content, chronologicalRank }) => {
+    mutationFn: async ({ id, title, chronologicalRank, finalVersionId }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title;
-      if (draft !== undefined) patch.draft = draft;
-      if (content !== undefined) patch.content = content;
       if (chronologicalRank !== undefined) patch.chronological_rank = chronologicalRank;
+      if (finalVersionId !== undefined) patch.final_version_id = finalVersionId;
       const { data, error } = await supabase
         .from('chapters')
         .update(patch)

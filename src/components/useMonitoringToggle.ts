@@ -23,15 +23,15 @@ export function useMonitoringToggle() {
   useEffect(() => {
     if (hydratedRef.current) return;
     if (!settingsQ.data) return;
-    if (settingsQ.data.monitoringOpen !== undefined) {
-      setLocal(settingsQ.data.monitoringOpen);
+    if (settingsQ.data.prefs.monitoringOpen !== undefined) {
+      setLocal(settingsQ.data.prefs.monitoringOpen);
     }
     hydratedRef.current = true;
   }, [settingsQ.data, setLocal]);
 
   function setOpen(next: boolean) {
     setLocal(next);
-    updateSettings.mutate({ patch: { monitoringOpen: next } });
+    updateSettings.mutate({ prefsPatch: { monitoringOpen: next } });
   }
 
   function toggle() {

@@ -29,14 +29,30 @@ export interface Chapter {
   reading_rank: string;
   chronological_rank: string;
   title: string | null;
-  draft: string;
-  content: string;
+  final_version_id: string | null;
   summary_s: string | null;
   summary_m: string | null;
   summary_l: string | null;
   status: 'draft' | 'published';
   published_at: string | null;
   source_note_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ChapterVersionOrigin = 'draft' | 'upscale' | 'manual_edit';
+
+export interface ChapterVersion {
+  id: string;
+  chapter_id: string;
+  world_id: string;
+  owner_id: string;
+  rank: string;
+  parent_version_id: string | null;
+  origin: ChapterVersionOrigin;
+  user_prompt: string | null;
+  text: string;
+  run_id: string | null;
   created_at: string;
   updated_at: string;
 }

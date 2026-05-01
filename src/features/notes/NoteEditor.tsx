@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -15,14 +15,19 @@ interface Props {
   debounceMs?: number;
   /** Entities to highlight in the editor. Updated reactively. */
   entityHighlights?: EntityHighlightSpec[];
+  /** Read-only: disables editing and the typing UI. */
+  readOnly?: boolean;
 }
 
-export function NoteEditor({
-  initialContent,
-  onChange,
-  debounceMs = 400,
-  entityHighlights,
-}: Props) {
+export interface NoteEditorHandle {
+  /** Returns the editor's current HTML synchronously (bypasses debounce). */
+  getHTML: () => string;
+}
+
+export const NoteEditor = forwardRef<NoteEditorHandle, Props>(function NoteEditor(
+  { initialContent, onChange, debounceMs = 400, entityHighlights, readOnly = false },
+  ref,
+) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -33,6 +38,7 @@ export function NoteEditor({
       Placeholder.configure({ placeholder: 'Start writing…' }),
       EntityHighlight.configure({ entities: entityHighlights ?? [] }),
     ],
+    editable: !readOnly,
     content: initialContent || '',
     editorProps: {
       attributes: {
@@ -41,7 +47,12 @@ export function NoteEditor({
           'prose prose-invert max-w-none min-h-[40vh] focus:outline-none px-4 py-3',
       },
     },
-    onUpdate: ({ editor }) => {
+    onUpdate: ({ editor, transaction }) => {
+      // Skip programmatic updates (initial setContent, decoration refresh, etc.)
+      // We only want to react to user input — gated by isFocused.
+      if (!editor.isFocused) return;
+      // Belt-and-suspenders: also require the transaction to actually change the doc.
+      if (!transaction.docChanged) return;
       const html = editor.getHTML();
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
@@ -50,11 +61,25 @@ export function NoteEditor({
     },
   });
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      getHTML: () => editor?.getHTML() ?? '',
+    }),
+    [editor],
+  );
+
   // Refresh decorations whenever the entities list changes.
   useEffect(() => {
     if (!editor) return;
     setEntityHighlights(editor, entityHighlights ?? []);
   }, [editor, entityHighlights]);
+
+  // Reflect external readOnly toggles.
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!readOnly);
+  }, [editor, readOnly]);
 
   useEffect(() => {
     return () => {
@@ -70,4 +95,4 @@ export function NoteEditor({
       <EditorContent editor={editor} />
     </div>
   );
-}
+});
