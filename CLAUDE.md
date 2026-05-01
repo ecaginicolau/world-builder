@@ -17,14 +17,14 @@ Vertical slicing — each slice ships a coherent app. Implement in order. Don't 
 | # | What works at end of slice |
 |---|---|
 | 0 | ✅ Login + worlds CRUD + PWA scaffold |
-| 1 ⭐ | Note + chat IA — **the core validation** |
-| 2 | Entities + tag entities on a note |
-| 3 | Auto-extraction + promotion note → entity |
-| 4 | Books / parts / chapters + promotion note → chapter |
-| 5 | Timeline + events + ranks |
-| 6 | Append-only entity versioning + state-at-rank |
-| 7 | Upscale + structured proposals |
-| 8 | Reader view + summaries + search + published flag |
+| 1 ⭐ | ✅ Note + chat IA — **the core validation** |
+| 2 | ✅ Entities + tag entities on a note |
+| 3 | ✅ Auto-extraction + promotion note → entity |
+| 4 | ✅ Books / parts / chapters + promotion note → chapter |
+| 5 | ✅ Timeline + events + ranks |
+| 6 | ✅ Append-only entity versioning + state-at-rank |
+| 7 | ✅ Upscale + structured proposals |
+| 8 | ✅ Reader view + summaries + PCC + search + published flag + runs page — **v1 complete** |
 
 ## Tech stack (settled — don't relitigate)
 

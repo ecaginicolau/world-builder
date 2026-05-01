@@ -2,9 +2,26 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
-## Status (2026-05-01 PM, Slice 8 livré, V010 appliquée, validation locale + smoke Chrome)
+## Et après ? (post-v1)
 
-**Slice 8 livré, V010 appliquée**, six features livrées :
+V1 = slices 0 → 8 toutes livrées. Plus de slice numérotée prévue dans le plan original. Pour la suite, les chantiers candidats se trouvent dans [docs/future-ideas.md](./future-ideas.md). En vrac, ce qui a le plus de valeur perçue (à re-prioriser en début de session future) :
+
+- **Stemming FR/EN dans le search** — `worlds.search_lang` + switch sur `to_tsvector('french'|'english', …)` pour que `chevaux` matche `cheval`. Petit (1 colonne + V011 + un settings selector).
+- **Versioning de chapitre au publish** — aujourd'hui le toggle est pur, pas de snapshot. Pour un vrai "canon stable", figer le `final_version_id` au moment du publish (plus retour facile en cas d'unpublish). Bigger (modèle DB).
+- **Streaming SSE upscale + summaries** — aujourd'hui blocking, 5-30s. Streaming = UX premium, requiert refacto edge function `llm-call` pour pipe SSE → React.
+- **Beta reader sharing** — lien magique read-only sur le Reader view. Auth token scoped au world. Slice ~moyenne.
+- **Embeddings + recherche sémantique** — pgvector sur Supabase, à brancher quand on veut chercher par sens et plus juste par mot.
+- **Détection de contradictions** — pass LLM périodique sur les chapters récents qui flag les incohérences avec les entity snapshots. Très fort produit, demande un budget runs.
+- **Templates d'EntityTypes pré-faits** — Personnage / Lieu / Objet / Faction avec fields recommandés. Petit, valeur "onboarding".
+- **Export EPUB / PDF** d'un book — pour l'auteur qui veut envoyer à un beta reader hors-app.
+
+Recommandation pour la prochaine session : ne pas attaquer l'un de ces chantiers à froid, plutôt **utiliser l'app pour un projet d'écriture réel** quelques jours, puis prioriser ce qui frotte le plus en pratique.
+
+---
+
+## Status (2026-05-01 PM, Slice 8 livré et validé live — **v1 complète**)
+
+**Slice 8 livré, V010 appliquée, validé live par le user.** Six features livrées :
 
 1. **Reader view** (`/read` + `/read/:chapterId`) — TOC books → parts → chapters, page lecture typo prose, prev/next, mini-popup entity au state du chapter via `resolveStateAtRank`. Drafts inclus avec badge.
 2. **Summaries S/M/L** — nouveau tab `Summary` dans le right panel ChapterScreen, generate par niveau via LLM (`src/lib/llm/summaries.ts`, tier `cheapest` par défaut, configurable). Save direct dans `chapters.summary_{s,m,l}`. 6 tests Vitest.
@@ -24,11 +41,12 @@ Première version utilisait des `tsvector` generated columns. Postgres a refusé
 
 `chapter_versions` embed sur `chapters` failait avec `Could not embed because more than one relationship was found`. Cause : 2 FKs entre les deux tables (`chapter_versions.chapter_id` ET `chapters.final_version_id`). Fix : split en 2 requêtes (search + lookup par chapter_id séparé) dans `src/lib/queries/search.ts`.
 
-### Validation locale Slice 8
+### Validation Slice 8
 
 - typecheck ✓ · lint ✓ · 83 Vitest ✓ (12 nouveaux PCC + 6 nouveaux summaries) · 4 Playwright ✓ · build prod ✓
-- Pilote Chrome smoke : Worlds list ✓, Reader page (TOC vide pour le smoke world) ✓, Settings PCC editor avec chips colorés default `[raw,L,M,S,S,S]` ✓, Settings Summarize tier ✓, Search modal Ctrl+K + query "smoke" → "No results." (FTS marche, juste rien à matcher dans le smoke world) ✓
-- Validation live LLM (summaries genere, upscale avec PCC, propose updates blocked when published) à faire avec un world peuplé.
+- Smoke Chrome côté Claude : Worlds list, Reader page rendue, Settings PCC editor avec chips colorés default `[raw,L,M,S,S,S]`, Settings Summarize tier, Search modal Ctrl+K + query → "No results." (FTS pipeline fonctionne) ✓
+- Validation live par le user (les 6 features sur un world peuplé) : ✓
+- Polish session : ajout d'un `notFoundComponent` propre au root route avec un bouton "Back to your worlds" + hint sur le hard-refresh, parce que TanStack Router code-based + Vite HMR a un quirk où les nouvelles routes ajoutées en cours de session ne sont pas re-registrées avant un refresh complet.
 
 ### Décisions tranchées Slice 8
 
