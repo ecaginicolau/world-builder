@@ -21,6 +21,14 @@ function indexOf(c: string): number {
   return i;
 }
 
+/** Return a rank that sorts after the largest rank in `items` (or START_RANK if empty). */
+export function nextRankAfter(items: { rank: string }[]): string {
+  if (items.length === 0) return START_RANK;
+  let max = items[0].rank;
+  for (const it of items) if (it.rank > max) max = it.rank;
+  return rankBetween(max, null);
+}
+
 export function rankBetween(lower: string | null, upper: string | null): string {
   if (lower !== null && upper !== null && lower >= upper) {
     throw new Error(`rank: lower (${lower}) must be < upper (${upper})`);

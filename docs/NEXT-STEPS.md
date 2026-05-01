@@ -2,6 +2,47 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 4 Phase A code-complete)
+
+**Slice 4 Phase A code-complete** — Books / Parts / Chapters CRUD + promotion note → chapter. Reste **Phase B (~1 min user)** pour appliquer V005.
+
+### Validation locale (avant V005)
+- typecheck ✓ · lint ✓ · 29 Vitest ✓ (3 nouveaux sur `nextRankAfter`) · 4 Playwright ✓ · build prod ✓
+- Pilote Chrome `/worlds/$id/books` : route rend, formulaire create + erreur PostgREST claire ("Could not find the table 'public.books' in the schema cache") tant que V005 pas appliquée.
+
+### Phase B Slice 4
+
+| # | Action | Où |
+|---|---|---|
+| B.1 | Apply `supabase/migrations/V005__slice_4_chapters.sql` | Dashboard SQL editor |
+| B.2 | Pilote live : créer book → part → chapter, écrire dedans, promouvoir une note vers un chapter | App |
+
+Pas de nouveau secret, pas d'Edge Function.
+
+### Ce qui a été fait dans Slice 4
+
+- **V005** : `books`, `parts`, `chapters` (avec reading_rank + chronological_rank + status draft/published + source_note_id), `chapter_participants` pivot. RLS + triggers + indexes.
+- **Routes** :
+  - `/worlds/$worldId/books` — liste, create, delete
+  - `/worlds/$worldId/books/$bookId` — détail book : create part, list parts avec leurs chapters, create chapter
+  - `/worlds/$worldId/chapters/$chapterId` — éditeur chapter (Tiptap StarterKit, auto-save sur title et draft)
+- **Lien "Books"** dans header WorldDetailScreen, à côté de "Entities".
+- **Promotion note → chapter** : bouton "Promote → chapter" dans le header NoteScreen → modal `PromoteToChapterModal` qui liste tous les parts par book (`<optgroup>`), input title, crée chapter avec `draft = note.content` + `source_note_id` + log `note_promotions` (target_kind='chapter').
+- **Helper ranks** `nextRankAfter(items)` dans `src/lib/ranks.ts` + 3 nouveaux tests.
+
+### Décisions unilatérales Slice 4 (cf. `docs/slice-4-plan.md`)
+
+- Pas de drag-to-reorder (Slice 4.x si besoin)
+- `chronological_rank` = `reading_rank` à la création (override SQL pour flashbacks ; UI dédiée Slice 5)
+- Pas de `published` flag UI (Slice 8)
+- Pas de summaries S/M/L (Slice 8)
+- Pas de chat panel sur chapter (Slice 4.x — refacto ChatPanel pour parentKind générique)
+- Pas de `chapter_participants` UI (table créée mais pas exposée — Slice 4.x ou 5)
+- Chapter editor = même `NoteEditor` que pour les notes (StarterKit) — différenciation toolbar reportée
+- Promotion : note reste `open`, n'est pas archivée
+
+---
+
 ## Status (2026-05-01 PM, Slice 3 Phase A code-complete + validé live)
 
 **Slice 3 Phase A code-complete et validé en pilote Chrome live OpenAI.** Auto-extraction d'entités + promotion note → entity marche end-to-end. Reste **Phase B (~2 min user)** pour appliquer V004 et idéalement redéployer la fonction `llm-call`.
@@ -201,7 +242,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 | **1** ✅⭐ | **Quick capture + Chat IA sur note** + world memory + tier/reasoning UI + audit log runs. Validé live OpenAI 2026-05-01. | **Concept central validé ✓** |
 | **2** ✅ | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat). Validé live 2026-05-01. | Apport du contexte structuré ✓ |
 | **3** ⏳ | **Auto-extraction d'entités** + promotion note → entité. Phase A validée live OpenAI 2026-05-01 ; Phase B (V004 + redeploy llm-call) en attente. | Cristallisation depuis brainstorm |
-| **4** | **Hiérarchie books/parts/chapters** + promotion note → chapitre (avec Tiptap riche) | Structure narrative |
+| **4** ⏳ | **Hiérarchie books/parts/chapters** + promotion note → chapitre. Phase A code-complete 2026-05-01 ; Phase B (V005) en attente. | Structure narrative |
 | **5** | Timeline + ranks (events, drag to reorder, override chronological_rank) | Chronologie |
 | **6** | **Versioning append-only** + résolution "state at rank R" | Évolution dans le temps |
 | **7** | **Upscale** + **Proposals** (diffs structurés sur entités depuis chapitre) | Boucle écriture → mise à jour entités |

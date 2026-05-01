@@ -12,6 +12,7 @@ import { ChatPanel } from './ChatPanel';
 import { NoteEntitiesPanel } from './NoteEntitiesPanel';
 import { DetectedEntitiesPanel } from './DetectedEntitiesPanel';
 import { useAutoExtract } from './useAutoExtract';
+import { PromoteToChapterModal } from './PromoteToChapterModal';
 import type { TaggedEntity } from '@/lib/llm';
 
 export function NoteScreen() {
@@ -27,6 +28,7 @@ export function NoteScreen() {
   const chatPanelOpen = useUiStore((s) => s.chatPanelOpen);
   const setChatPanelOpen = useUiStore((s) => s.setChatPanelOpen);
   const [title, setTitle] = useState<string | null>(null);
+  const [promoteOpen, setPromoteOpen] = useState(false);
 
   const currentTitle = title ?? noteQ.data?.title ?? '';
 
@@ -93,6 +95,14 @@ export function NoteScreen() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={() => setPromoteOpen(true)}
+            className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
+            data-testid="promote-to-chapter"
+          >
+            Promote → chapter
+          </button>
+          <button
+            type="button"
             onClick={() => setChatPanelOpen(!chatPanelOpen)}
             className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
             data-testid="toggle-chat"
@@ -151,6 +161,15 @@ export function NoteScreen() {
           </div>
         ) : null}
       </div>
+
+      <PromoteToChapterModal
+        open={promoteOpen}
+        onClose={() => setPromoteOpen(false)}
+        worldId={worldId}
+        noteId={noteId}
+        noteTitle={currentTitle || undefined}
+        noteContent={noteQ.data.content}
+      />
     </main>
   );
 }

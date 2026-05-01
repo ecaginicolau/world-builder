@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rankBetween, START_RANK, END_RANK } from './ranks';
+import { rankBetween, nextRankAfter, START_RANK, END_RANK } from './ranks';
 
 describe('ranks', () => {
   it('returns a value between two adjacent ranks', () => {
@@ -44,6 +44,20 @@ describe('ranks', () => {
     for (let i = 1; i < seq.length; i++) {
       expect(seq[i] < seq[i - 1]).toBe(true);
     }
+  });
+
+  it('nextRankAfter on empty list returns START_RANK', () => {
+    expect(nextRankAfter([])).toBe(START_RANK);
+  });
+
+  it('nextRankAfter on a single item returns a rank greater than it', () => {
+    const r = nextRankAfter([{ rank: 'm0' }]);
+    expect(r > 'm0').toBe(true);
+  });
+
+  it('nextRankAfter picks the max regardless of input order', () => {
+    const r = nextRankAfter([{ rank: 'b0' }, { rank: 'a0' }, { rank: 'c0' }]);
+    expect(r > 'c0').toBe(true);
   });
 
   it('subdivides repeatedly between two close values', () => {

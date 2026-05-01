@@ -11,6 +11,9 @@ import { WorldsScreen } from './features/worlds/WorldsScreen';
 import { WorldDetailScreen } from './features/notes/WorldDetailScreen';
 import { NoteScreen } from './features/notes/NoteScreen';
 import { EntitiesScreen } from './features/entities/EntitiesScreen';
+import { BooksScreen } from './features/chapters/BooksScreen';
+import { BookDetailScreen } from './features/chapters/BookDetailScreen';
+import { ChapterScreen } from './features/chapters/ChapterScreen';
 import { Login } from './features/auth/Login';
 import { supabase } from './lib/supabase';
 
@@ -69,6 +72,27 @@ const entitiesRoute = createRoute({
   component: EntitiesScreen,
 });
 
+const booksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/books',
+  beforeLoad: requireAuth,
+  component: BooksScreen,
+});
+
+const bookDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/books/$bookId',
+  beforeLoad: requireAuth,
+  component: BookDetailScreen,
+});
+
+const chapterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/chapters/$chapterId',
+  beforeLoad: requireAuth,
+  component: ChapterScreen,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -76,6 +100,9 @@ const routeTree = rootRoute.addChildren([
   worldDetailRoute,
   noteRoute,
   entitiesRoute,
+  booksRoute,
+  bookDetailRoute,
+  chapterRoute,
 ]);
 
 export const router = createRouter({ routeTree });

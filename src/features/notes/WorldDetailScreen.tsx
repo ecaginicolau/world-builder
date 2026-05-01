@@ -69,6 +69,14 @@ export function WorldDetailScreen() {
         </div>
         <div className="flex items-center gap-2">
           <Link
+            to="/worlds/$worldId/books"
+            params={{ worldId }}
+            className="bg-bg-subtle px-3 py-2 text-sm hover:bg-bg-panel"
+            data-testid="nav-books"
+          >
+            Books
+          </Link>
+          <Link
             to="/worlds/$worldId/entities"
             params={{ worldId }}
             className="bg-bg-subtle px-3 py-2 text-sm hover:bg-bg-panel"
