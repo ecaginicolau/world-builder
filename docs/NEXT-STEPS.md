@@ -2,6 +2,47 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 3 Phase A code-complete + validé live)
+
+**Slice 3 Phase A code-complete et validé en pilote Chrome live OpenAI.** Auto-extraction d'entités + promotion note → entity marche end-to-end. Reste **Phase B (~2 min user)** pour appliquer V004 et idéalement redéployer la fonction `llm-call`.
+
+### Validation live (2026-05-01 PM)
+- Note avec body "Maitre Sorn rencontre Iria au pied de la Vieille Forteresse. Edran Voss surveille de loin..." → après 5s d'inactivité, l'extraction LLM tourne.
+- 3 candidats détectés (Maitre Sorn / Edran Voss / Vieille Forteresse), types suggérés cohérents (Personnages / Lieux).
+- 2 matched silently auto-tagués (Iria + Vieux Chateau présents avant) → badge "AUTO" visible sur Iria.
+- "Create + tag" sur Maitre Sorn → entité créée, taggée, disparaît correctement de la liste "new" (filtre par nom).
+- `note_promotions` log cracha proprement "table not found" (V004 pas appliquée) sans casser l'UX.
+- Edge Function `llm-call` retourne JSON valide même sans redéploiement (OpenAI a respecté l'instruction de format dans le system prompt).
+
+### Phase B Slice 3
+
+| # | Action | Où | Notes |
+|---|---|---|---|
+| B.1 | Apply `V004__slice_3_note_promotions.sql` | Dashboard SQL editor | nécessaire pour audit log |
+| B.2 | Redeploy Edge Function `llm-call` (nouvelle version supporte `response_format`) | Dashboard Edge Functions | optionnel — OpenAI respecte le prompt même sans, mais le redeploy garantit le mode JSON strict |
+
+### Ce qui a été fait dans Slice 3
+
+- **V004** : table `note_promotions` (audit log polymorphique vers entity/version/chapter/event/note_split) + RLS + 2 indexes.
+- **Edge Function `llm-call`** : passthrough `response_format` vers OpenAI (pour json mode + json schema).
+- **`src/lib/llm/extract.ts`** : module dédié à l'extraction. Schéma Zod `entityCandidateSchema`, prompt builder `buildExtractMessages`, mock provider (regex + match aliases), openai provider (utilise tier `cheapest`=gpt-5.4-nano + json mode).
+- **`useAutoExtract` hook** : debounce 5s, gates ≥80 chars + pas en flight + cache par hash(text). Reset on noteId change.
+- **`DetectedEntitiesPanel`** : affiche candidats avec status (matched/new). Auto-tag silencieux des matches via `pinnedManually: false`. Bouton "Create + tag" pour les new (création entité + tag + log promotion). Filtre new par nom pour éviter les doublons.
+- **`useTagEntity`** : nouveau param `pinnedManually` (default true).
+- **NoteEntitiesPanel** : badge "AUTO" sur les chips où `pinned_manually=false`.
+- **`logNotePromotion()` helper** : fire-and-forget, errors → console.warn.
+- **8 tests Vitest** sur `extract.ts` (schema, mock, prompt builder).
+
+### Décisions unilatérales Slice 3 (cf. `docs/slice-3-plan.md`)
+
+- Pas de highlighting Tiptap (différé Slice 3.x) — panel suffisant
+- Tier extraction = `cheapest` (gpt-5.4-nano) — extraction = task fast/cheap
+- Cache extraction = hash(plainText) en mémoire, par noteId — pas persisté
+- Trigger debounce 5s + gate 80 chars min
+- Type unknown : `<select>` apparaît à côté du candidat ; user pick un type existant ou message "create type first"
+
+---
+
 ## Status (2026-05-01 PM, Slice 2 Phase A code-complete)
 
 **Slice 2 Phase A code-complete** — entity_types + entities CRUD + tag d'entités sur une note + injection dans le prompt LLM. Reste **Phase B (1 min user)** pour appliquer V003 et tester live.
@@ -158,8 +199,8 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 |---|---|---|
 | **0** ✅ | Login Supabase (magic link), créer/lister des "worlds" vides, déployé en PWA | La stack tient debout |
 | **1** ✅⭐ | **Quick capture + Chat IA sur note** + world memory + tier/reasoning UI + audit log runs. Validé live OpenAI 2026-05-01. | **Concept central validé ✓** |
-| **2** ⏳ | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat). Phase A code-complete 2026-05-01 ; Phase B (apply V003 + smoke test) en attente. | Apport du contexte structuré |
-| **3** | **Auto-extraction d'entités** dans note/chat + promotion note → entité | Cristallisation depuis brainstorm |
+| **2** ✅ | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat). Validé live 2026-05-01. | Apport du contexte structuré ✓ |
+| **3** ⏳ | **Auto-extraction d'entités** + promotion note → entité. Phase A validée live OpenAI 2026-05-01 ; Phase B (V004 + redeploy llm-call) en attente. | Cristallisation depuis brainstorm |
 | **4** | **Hiérarchie books/parts/chapters** + promotion note → chapitre (avec Tiptap riche) | Structure narrative |
 | **5** | Timeline + ranks (events, drag to reorder, override chronological_rank) | Chronologie |
 | **6** | **Versioning append-only** + résolution "state at rank R" | Évolution dans le temps |

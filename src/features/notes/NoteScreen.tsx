@@ -10,6 +10,8 @@ import { NoteEditor } from './NoteEditor';
 import { htmlToPlainText } from '@/lib/html';
 import { ChatPanel } from './ChatPanel';
 import { NoteEntitiesPanel } from './NoteEntitiesPanel';
+import { DetectedEntitiesPanel } from './DetectedEntitiesPanel';
+import { useAutoExtract } from './useAutoExtract';
 import type { TaggedEntity } from '@/lib/llm';
 
 export function NoteScreen() {
@@ -32,6 +34,12 @@ export function NoteScreen() {
     if (!noteQ.data) return '';
     return htmlToPlainText(noteQ.data.content);
   }, [noteQ.data]);
+
+  const extract = useAutoExtract({
+    noteId,
+    worldId,
+    plainText: noteTextForLlm,
+  });
 
   const taggedEntitiesForLlm = useMemo<TaggedEntity[]>(() => {
     const links = noteEntitiesQ.data ?? [];
@@ -122,6 +130,13 @@ export function NoteScreen() {
             onChange={onContentChange}
           />
           <NoteEntitiesPanel noteId={noteId} worldId={worldId} />
+          <DetectedEntitiesPanel
+            noteId={noteId}
+            worldId={worldId}
+            candidates={extract.candidates}
+            status={extract.status}
+            error={extract.error}
+          />
         </div>
         {chatPanelOpen ? (
           <div className="min-h-0">

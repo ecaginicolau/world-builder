@@ -34,6 +34,7 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
   );
 
   const taggedIds = new Set((linksQ.data ?? []).map((l) => l.entity_id));
+  const linkByEntityId = new Map((linksQ.data ?? []).map((l) => [l.entity_id, l]));
   const tagged = (linksQ.data ?? [])
     .map((l) => entitiesById.get(l.entity_id))
     .filter((e): e is NonNullable<typeof e> => !!e);
@@ -84,14 +85,25 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
         <ul className="flex flex-wrap gap-2 px-3 pb-2" data-testid="tagged-entities">
           {tagged.map((e) => {
             const t = typesById.get(e.entity_type_id);
+            const link = linkByEntityId.get(e.id);
+            const isAuto = link?.pinned_manually === false;
             return (
               <li
                 key={e.id}
                 className="flex items-center gap-2 rounded-full bg-bg-subtle px-2 py-1 text-xs"
                 data-testid="tagged-entity"
+                data-auto={isAuto ? 'true' : 'false'}
               >
                 <span>{e.name}</span>
                 {t ? <span className="text-fg-muted">· {t.name}</span> : null}
+                {isAuto ? (
+                  <span
+                    className="rounded bg-bg px-1 text-[10px] uppercase tracking-wide text-fg-muted"
+                    title="Auto-tagged from extraction"
+                  >
+                    auto
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => onUntag(e.id)}

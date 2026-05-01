@@ -4,7 +4,8 @@
 // Request body:
 //   { messages: Array<{ role: 'system'|'user'|'assistant'; content: string }>,
 //     model?: string,
-//     reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' }
+//     reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh',
+//     response_format?: { type: 'json_object' } | { type: 'json_schema', json_schema: {...} } }
 // Response (200):
 //   { content: string, model: string, usage: { prompt_tokens, completion_tokens, total_tokens } }
 //
@@ -57,6 +58,9 @@ Deno.serve(async (req: Request) => {
   const upstreamBody: Record<string, unknown> = { model, messages };
   if (typeof body.reasoning_effort === 'string' && ALLOWED_EFFORT.has(body.reasoning_effort)) {
     upstreamBody.reasoning_effort = body.reasoning_effort;
+  }
+  if (body.response_format && typeof body.response_format === 'object') {
+    upstreamBody.response_format = body.response_format;
   }
 
   const upstream = await fetch(OPENAI_URL, {

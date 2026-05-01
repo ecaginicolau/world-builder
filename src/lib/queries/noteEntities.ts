@@ -26,16 +26,16 @@ export function useTagEntity() {
   return useMutation<
     NoteEntity,
     Error,
-    { noteId: string; entityId: string; ownerId: string }
+    { noteId: string; entityId: string; ownerId: string; pinnedManually?: boolean }
   >({
-    mutationFn: async ({ noteId, entityId, ownerId }) => {
+    mutationFn: async ({ noteId, entityId, ownerId, pinnedManually = true }) => {
       const { data, error } = await supabase
         .from('note_entities')
         .insert({
           note_id: noteId,
           entity_id: entityId,
           owner_id: ownerId,
-          pinned_manually: true,
+          pinned_manually: pinnedManually,
         })
         .select('*')
         .single();
