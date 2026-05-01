@@ -4,6 +4,7 @@ export interface EntityType {
   owner_id: string;
   name: string;
   icon: string | null;
+  color: string | null;
   fields: unknown[];
   created_at: string;
   updated_at: string;

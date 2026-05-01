@@ -30,10 +30,16 @@ export function buildMessages(req: ChatRequest): ChatMessage[] {
   }
 
   const messages: ChatMessage[] = [];
-  if (systemParts.length > 0) {
+  if (systemParts.length > 0 || (req.worldCustomPrompt && req.worldCustomPrompt.trim())) {
+    const baseInstructions =
+      'You are an assistant helping the author brainstorm and develop their world. Be concise.';
+    const trailing = req.worldCustomPrompt && req.worldCustomPrompt.trim()
+      ? `\n\n# Author preferences\n${req.worldCustomPrompt.trim()}`
+      : '';
+    const body = systemParts.length > 0 ? `${systemParts.join('\n\n')}\n\n` : '';
     messages.push({
       role: 'system',
-      content: `${systemParts.join('\n\n')}\n\nYou are an assistant helping the author brainstorm and develop their world. Be concise.`,
+      content: `${body}${baseInstructions}${trailing}`,
     });
   }
   for (const m of req.history) {

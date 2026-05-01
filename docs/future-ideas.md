@@ -6,6 +6,36 @@ Idées notées au fil des discussions, à considérer après le v1. Complète la
 
 - ~~Auto-highlight / auto-extraction d'entités~~ → désormais in-scope (cf. [product-design.md](./product-design.md) §5.3).
 
+## Améliorations highlight in-editor (post-3.y)
+
+La v1 du highlight (Slice 3.y) sera regex-naïve : matche `entity.name` exact (et `entity.aliases` exact). À explorer ensuite :
+
+- **Partial match** : si entity = "Maître Sorn", aussi matcher "Sorn" tout court (avec heuristique sur le type — un Character porte souvent un prénom seul, un Location moins).
+- **Fuzzy / Unicode normalize** : "Maitre" sans accent doit matcher "Maître" avec.
+- **Pronoms / coréférences** : "il", "elle" qui réfèrent à une entité contextuellement — nécessite un vrai modèle de NLP, pas du regex.
+- **Désambiguation** : si "Voss" est l'alias d'Edran ET aussi un nouveau personnage candidat → présenter le choix à l'user.
+- **Décorations Tiptap éphémères** : le highlight ne doit jamais polluer le `content` HTML stocké en DB — uniquement Tiptap Decoration au runtime.
+
+## Settings : exposer les prompts
+
+Slice 3.x ajoute `worlds.custom_prompt` qui est **appended** au system prompt (pas un remplacement). Plus tard, on pourrait :
+
+- **Per-feature prompts** : un custom_prompt par kind (chat / extract / upscale / propose_updates / summarize) — utile si l'user veut un ton différent selon la tâche.
+- **Versioning des prompts** : garder l'historique des prompts du world pour pouvoir comparer "avant/après changement de voix".
+- **Bibliothèque communautaire** : partager des prompts par genre (dark fantasy, sci-fi, polar...).
+- **Mode "expert"** : éditer le prompt complet (pas juste l'addition), avec validation côté UI pour éviter de casser les contraintes JSON ou les sections obligatoires.
+
+## Monitoring avancé
+
+Slice 3.x ajoute un footer minimal listant les 20 derniers `runs`. Pour aller plus loin :
+
+- **Filtres** : par kind (chat / extract / upscale), par status (errors only), par date range.
+- **Stats agrégées** : tokens totaux par jour/semaine, coût estimé en $, durée moyenne par kind.
+- **Graphs** : timeline des runs, histogramme de durations, repartition par model.
+- **Export CSV / JSON** pour analyse externe.
+- **Reopen session** : depuis un run de chat, recréer le contexte exact (`input_summary` capture les pins) pour rejouer la conversation.
+- **Realtime** : Supabase Realtime sur la table `runs` au lieu du polling 5s, pour les utilisateurs ayant plusieurs onglets ou devices.
+
 ## Collaboration & partage
 
 ### Partage en lecture seule

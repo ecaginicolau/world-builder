@@ -154,6 +154,7 @@ export function NoteScreen() {
               noteId={noteId}
               worldId={worldId}
               worldMemory={worldQ.data?.world_memory ?? worldQ.data?.description ?? undefined}
+              worldCustomPrompt={worldQ.data?.custom_prompt ?? undefined}
               noteTitle={currentTitle || undefined}
               noteContextText={noteTextForLlm}
               taggedEntities={taggedEntitiesForLlm}

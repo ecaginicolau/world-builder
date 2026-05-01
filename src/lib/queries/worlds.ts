@@ -7,7 +7,7 @@ export const worldsKeys = {
   detail: (id: string) => ['worlds', id] as const,
 };
 
-const WORLD_COLS = 'id, name, description, world_memory, created_at';
+const WORLD_COLS = 'id, name, description, world_memory, custom_prompt, created_at';
 
 export function useWorlds() {
   return useQuery<World[], Error>({
@@ -62,13 +62,20 @@ export function useUpdateWorld() {
   return useMutation<
     World,
     Error,
-    { id: string; name?: string; description?: string | null; world_memory?: string | null }
+    {
+      id: string;
+      name?: string;
+      description?: string | null;
+      world_memory?: string | null;
+      custom_prompt?: string | null;
+    }
   >({
-    mutationFn: async ({ id, name, description, world_memory }) => {
+    mutationFn: async ({ id, name, description, world_memory, custom_prompt }) => {
       const patch: Record<string, unknown> = {};
       if (name !== undefined) patch.name = name;
       if (description !== undefined) patch.description = description;
       if (world_memory !== undefined) patch.world_memory = world_memory;
+      if (custom_prompt !== undefined) patch.custom_prompt = custom_prompt;
       const { data, error } = await supabase
         .from('worlds')
         .update(patch)

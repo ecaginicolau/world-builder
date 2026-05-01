@@ -27,6 +27,8 @@ export interface TaggedEntity {
 
 export interface ChatRequest {
   worldMemory?: string;
+  /** Per-world instructions on HOW the LLM should respond (vs facts in worldMemory). */
+  worldCustomPrompt?: string;
   noteTitle?: string;
   noteContext?: string;
   taggedEntities?: TaggedEntity[];

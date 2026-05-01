@@ -7,6 +7,8 @@ interface UiState {
   setQuickCaptureOpen: (open: boolean) => void;
   lastWorldId: string | null;
   setLastWorldId: (id: string | null) => void;
+  monitoringOpen: boolean;
+  setMonitoringOpen: (open: boolean) => void;
 }
 
 const LAST_WORLD_KEY = 'wb:lastWorldId';
@@ -25,4 +27,6 @@ export const useUiStore = create<UiState>((set) => ({
     }
     set({ lastWorldId: id });
   },
+  monitoringOpen: false,
+  setMonitoringOpen: (open) => set({ monitoringOpen: open }),
 }));

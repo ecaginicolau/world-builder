@@ -88,4 +88,26 @@ describe('buildMessages', () => {
     });
     expect(msgs[0].content).not.toContain('Linked entities');
   });
+
+  it('appends worldCustomPrompt under "Author preferences"', () => {
+    const msgs = buildMessages({
+      worldMemory: 'Grim world.',
+      worldCustomPrompt: 'Always answer in French. Be terse.',
+      history: [],
+      userMessage: 'hi',
+    });
+    expect(msgs[0].role).toBe('system');
+    expect(msgs[0].content).toContain('# Author preferences');
+    expect(msgs[0].content).toContain('Always answer in French. Be terse.');
+  });
+
+  it('emits a system message even with only worldCustomPrompt and no other context', () => {
+    const msgs = buildMessages({
+      worldCustomPrompt: 'Be terse.',
+      history: [],
+      userMessage: 'hi',
+    });
+    expect(msgs[0].role).toBe('system');
+    expect(msgs[0].content).toContain('Be terse.');
+  });
 });

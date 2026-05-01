@@ -55,45 +55,18 @@ export function WorldDetailScreen() {
   return (
     <main className="mx-auto flex h-full max-w-3xl flex-col gap-4 px-6 py-6">
       <header className="flex items-baseline justify-between">
-        <div>
-          <Link
-            to="/worlds"
-            className="text-sm text-fg-muted hover:text-fg"
-            data-testid="back-to-worlds"
-          >
-            ← Worlds
-          </Link>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            {worldQ.data?.name ?? 'Loading…'}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            to="/worlds/$worldId/books"
-            params={{ worldId }}
-            className="bg-bg-subtle px-3 py-2 text-sm hover:bg-bg-panel"
-            data-testid="nav-books"
-          >
-            Books
-          </Link>
-          <Link
-            to="/worlds/$worldId/entities"
-            params={{ worldId }}
-            className="bg-bg-subtle px-3 py-2 text-sm hover:bg-bg-panel"
-            data-testid="nav-entities"
-          >
-            Entities
-          </Link>
-          <button
-            type="button"
-            onClick={onCreate}
-            disabled={createNote.isPending}
-            className="hidden bg-accent px-4 py-2 font-medium text-accent-fg disabled:opacity-50 sm:inline-flex"
-            data-testid="create-note"
-          >
-            {createNote.isPending ? 'Creating…' : '+ Note'}
-          </button>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {worldQ.data?.name ?? 'Loading…'}
+        </h1>
+        <button
+          type="button"
+          onClick={onCreate}
+          disabled={createNote.isPending}
+          className="hidden bg-accent px-4 py-2 font-medium text-accent-fg disabled:opacity-50 sm:inline-flex"
+          data-testid="create-note"
+        >
+          {createNote.isPending ? 'Creating…' : '+ Note'}
+        </button>
       </header>
 
       <section

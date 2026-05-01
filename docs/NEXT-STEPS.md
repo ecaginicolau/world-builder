@@ -2,6 +2,24 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 3.x livré et validé live)
+
+**Slice 3.x livré** — nav (Option A : header sticky), Settings écran, custom prompt per-world, monitoring footer, cache fix auto-extract, debounce configurable. Validé en pilote Chrome avec OpenAI live.
+
+### Validation live (2026-05-01 PM)
+- Nav : `[World ▾] · [Notes][Entities][Books] · [📊][⚙]` sticky en haut, tabs highlight l'écran actif, switch instantané entre sections. Plus besoin de revenir au world dashboard.
+- Settings → debounce 5000→2000 saved (persisté DB). Custom prompt "Toujours répondre en français en moins de 3 phrases. Termine chaque réponse par 🔥" → LLM live OpenAI a respecté les 3 contraintes (langue, longueur, emoji).
+- Monitoring panel : toggle ⚙→📊 → footer 240px s'affiche. 4 runs précédents listés. Nouveau chat → run apparaît dans <1s grâce à l'invalidate après `logRun`. Click row → expand inline avec `input_summary` JSON formatté.
+- Cache auto-extract : revisit d'une note non modifiée → pas de re-fire (vérifié réseau, aucune nouvelle requête llm-call).
+
+### Fix non-évident
+- TanStack Query `refetchInterval` ne polling pas en background sur cette config Chrome. Solution adoptée = polling 5s + `refetchIntervalInBackground: true` + invalidation immédiate côté ChatPanel après `logRun().then()`. Le polling est gardé pour les runs qui n'ont pas de site d'invalidation explicite (auto-extract futur).
+
+### Déjà inclus pour Slice 3.y
+- Colonne `entity_types.color text` créée par V006 mais pas encore utilisée — sera consommée en 3.y (chips colorées + highlights in-editor).
+
+---
+
 ## Status (2026-05-01 PM, Slice 4 Phase A code-complete)
 
 **Slice 4 Phase A code-complete** — Books / Parts / Chapters CRUD + promotion note → chapter. Reste **Phase B (~1 min user)** pour appliquer V005.

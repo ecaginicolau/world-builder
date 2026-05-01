@@ -5,6 +5,7 @@ import {
   useMessages,
   useThreads,
 } from '@/lib/queries/threads';
+import { useQueryClient } from '@tanstack/react-query';
 import { logRun } from '@/lib/queries/runs';
 import { useSession } from '@/features/auth/session';
 import {
@@ -20,6 +21,7 @@ interface Props {
   noteId: string;
   worldId: string;
   worldMemory?: string;
+  worldCustomPrompt?: string;
   noteTitle?: string;
   noteContextText: string;
   taggedEntities?: TaggedEntity[];
@@ -37,11 +39,13 @@ export function ChatPanel({
   noteId,
   worldId,
   worldMemory,
+  worldCustomPrompt,
   noteTitle,
   noteContextText,
   taggedEntities,
 }: Props) {
   const session = useSession();
+  const qc = useQueryClient();
   const threadsQ = useThreads(noteId);
   const createThread = useCreateThread();
   const insertMessage = useInsertMessage();
@@ -120,6 +124,7 @@ export function ChatPanel({
       const llm = getLlm();
       const resp = await llm.chat({
         worldMemory,
+        worldCustomPrompt,
         noteTitle,
         noteContext: noteContextText,
         taggedEntities,
@@ -151,6 +156,8 @@ export function ChatPanel({
         durationMs: Math.round(performance.now() - startedAt),
         usage: resp.tokensUsed ?? null,
         inputSummary: { tier, reasoning, noteId, historyLength: history.length },
+      }).then(() => {
+        void qc.invalidateQueries({ queryKey: ['runs'] });
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -167,6 +174,8 @@ export function ChatPanel({
         durationMs: Math.round(performance.now() - startedAt),
         errorMessage: msg.slice(0, 1000),
         inputSummary: { tier, reasoning, noteId },
+      }).then(() => {
+        void qc.invalidateQueries({ queryKey: ['runs'] });
       });
     } finally {
       setSending(false);

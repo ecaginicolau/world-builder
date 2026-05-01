@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import { useSession } from '@/features/auth/session';
 import { useEffect } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
+import { AppHeader } from '@/components/AppHeader';
+import { MonitoringPanel } from '@/components/MonitoringPanel';
 
 interface Props {
   children: ReactNode;
@@ -29,5 +31,11 @@ export function RootLayout({ children }: Props) {
     );
   }
 
-  return <div className="h-full">{children}</div>;
+  return (
+    <div className="flex h-full flex-col">
+      {session.status === 'authed' ? <AppHeader /> : null}
+      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      {session.status === 'authed' ? <MonitoringPanel /> : null}
+    </div>
+  );
 }

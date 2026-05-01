@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { getExtractor, type EntityCandidate } from '@/lib/llm/extract';
 import { useEntities } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
+import { useUserSettings } from '@/lib/queries/userSettings';
 
 const MIN_CHARS = 80;
-const DEBOUNCE_MS = 5000;
+const DEFAULT_DEBOUNCE_MS = 5000;
 
 interface State {
   candidates: EntityCandidate[];
@@ -22,6 +23,13 @@ function tinyHash(s: string): string {
   return String(h);
 }
 
+/**
+ * Module-level cache: surviving across remounts (e.g. when the user navigates
+ * away from a note and comes back). Key = noteId, value = { hash, candidates }.
+ * In-memory only — refresh wipes it, which is acceptable.
+ */
+const cache = new Map<string, { hash: string; candidates: EntityCandidate[] }>();
+
 interface Args {
   noteId: string;
   worldId: string;
@@ -30,22 +38,27 @@ interface Args {
   enabled?: boolean;
 }
 
-/**
- * Debounced auto-extraction of entity candidates from a note's plain text.
- * Skips: text too short, identical hash already extracted, in-flight call.
- * The hook keeps last result in local state — caller is responsible for
- * acting on candidates (auto-tag matches / surface in UI).
- */
 export function useAutoExtract({ noteId, worldId, plainText, enabled = true }: Args) {
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
-  const [state, setState] = useState<State>({ candidates: [], status: 'idle' });
+  const settingsQ = useUserSettings();
+  const debounceMs = settingsQ.data?.autoExtractDebounceMs ?? DEFAULT_DEBOUNCE_MS;
+  const cached = cache.get(noteId);
+  const [state, setState] = useState<State>(() =>
+    cached
+      ? { candidates: cached.candidates, status: 'success', fromHash: cached.hash }
+      : { candidates: [], status: 'idle' },
+  );
   const inFlightRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset when switching notes.
   useEffect(() => {
-    setState({ candidates: [], status: 'idle' });
+    const c = cache.get(noteId);
+    if (c) {
+      setState({ candidates: c.candidates, status: 'success', fromHash: c.hash });
+    } else {
+      setState({ candidates: [], status: 'idle' });
+    }
     inFlightRef.current = false;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
   }, [noteId]);
@@ -74,6 +87,7 @@ export function useAutoExtract({ noteId, worldId, plainText, enabled = true }: A
           };
         });
         const result = await extractor({ noteText: plainText, existing, knownTypes });
+        cache.set(noteId, { hash, candidates: result.candidates });
         setState({
           candidates: result.candidates,
           status: 'success',
@@ -88,12 +102,12 @@ export function useAutoExtract({ noteId, worldId, plainText, enabled = true }: A
       } finally {
         inFlightRef.current = false;
       }
-    }, DEBOUNCE_MS);
+    }, debounceMs);
 
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [plainText, enabled, state.fromHash, entitiesQ.data, typesQ.data]);
+  }, [plainText, enabled, state.fromHash, entitiesQ.data, typesQ.data, noteId, debounceMs]);
 
   return state;
 }

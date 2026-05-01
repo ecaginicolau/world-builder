@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
 export type RunKind =
@@ -22,6 +23,47 @@ export interface LogRunInput {
   usage?: { prompt?: number; completion?: number } | null;
   errorMessage?: string | null;
   inputSummary?: Record<string, unknown> | null;
+}
+
+export interface RunRow {
+  id: string;
+  world_id: string;
+  kind: RunKind;
+  parent_kind: string | null;
+  parent_id: string | null;
+  model: string;
+  provider: string;
+  status: RunStatus;
+  duration_ms: number | null;
+  usage: { prompt_tokens?: number; completion_tokens?: number } | null;
+  error_message: string | null;
+  input_summary: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export const runsKeys = {
+  recent: (worldId: string | null, limit: number) => ['runs', 'recent', worldId, limit] as const,
+};
+
+export function useRecentRuns(worldId: string | null, limit = 20, enabled = true) {
+  return useQuery<RunRow[], Error>({
+    queryKey: runsKeys.recent(worldId, limit),
+    enabled: enabled && !!worldId,
+    refetchInterval: enabled ? 5000 : false,
+    refetchIntervalInBackground: true,
+    staleTime: 0,
+    queryFn: async () => {
+      let q = supabase
+        .from('runs')
+        .select('id, world_id, kind, parent_kind, parent_id, model, provider, status, duration_ms, usage, error_message, input_summary, created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (worldId) q = q.eq('world_id', worldId);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as RunRow[];
+    },
+  });
 }
 
 /**
