@@ -14,6 +14,7 @@ import { EntitiesScreen } from './features/entities/EntitiesScreen';
 import { BooksScreen } from './features/chapters/BooksScreen';
 import { BookDetailScreen } from './features/chapters/BookDetailScreen';
 import { ChapterScreen } from './features/chapters/ChapterScreen';
+import { TimelineScreen } from './features/timeline/TimelineScreen';
 import { SettingsScreen } from './features/settings/SettingsScreen';
 import { Login } from './features/auth/Login';
 import { supabase } from './lib/supabase';
@@ -94,6 +95,13 @@ const chapterRoute = createRoute({
   component: ChapterScreen,
 });
 
+const timelineRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/timeline',
+  beforeLoad: requireAuth,
+  component: TimelineScreen,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/worlds/$worldId/settings',
@@ -111,6 +119,7 @@ const routeTree = rootRoute.addChildren([
   booksRoute,
   bookDetailRoute,
   chapterRoute,
+  timelineRoute,
   settingsRoute,
 ]);
 

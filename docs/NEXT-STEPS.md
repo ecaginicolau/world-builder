@@ -2,6 +2,79 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 5 livré et validé live + ConfirmDialog réutilisable)
+
+**Slice 5 livré, V007 appliquée, full flow validé live.** Timeline avec events + chapters mergés, reorder cross-table, edit/delete events, promote note → event. En cours de session, on a aussi remplacé tous les `window.confirm()` / `window.alert()` par un composant `ConfirmDialog` réutilisable themed dark.
+
+**Demo guide** : [docs/demo/slice-5-timeline.md](./demo/slice-5-timeline.md) — walkthrough ~3 min pour re-valider à la main.
+
+### Validation live Slice 5 (V007 appliquée)
+- Create event "La Grande Bataille" → counter `1 chapter · 1 event` ✓
+- Reorder ↑ : event passe au-dessus du chapter (cross-table chronological_rank update) ✓
+- Reorder ▼ : event redescend ✓
+- Edit event inline : title + description multi-ligne + tags `war, off-screen, pivot` saved et rendus ("📅 Event · war, off-screen, pivot" + description avec line-break préservé) ✓
+- Promote note "Maitre Sorn..." → event "Rencontre à la Vieille Forteresse" : description = `htmlToPlainText(note.content)`, tags `rencontre, trahison`, redirect vers `/timeline`, counter passe à `1 chapter · 2 events`, event s'insère bien à la fin ✓
+- Delete event via ConfirmDialog themed (bouton Delete rouge en mode `danger`) → event disparu, counter à `1 chapter · 1 event` ✓
+- Console clean : aucun `[note_promotions] log failed`, aucun erreur applicative.
+
+### Polish session : ConfirmDialog réutilisable
+
+- Nouveau `src/lib/useConfirm.ts` : zustand store `useDialogStore` + hooks `useConfirm({title, message?, confirmLabel?, cancelLabel?, danger?}) → Promise<boolean>` et `useAlert({title, message?, okLabel?}) → Promise<void>`.
+- Nouveau `src/components/ConfirmDialog.tsx` : modal themed mounted globalement dans `RootLayout`. ESC dismisses (false), Enter confirms (true), click backdrop dismisses, autoFocus sur OK. Bouton OK rouge (`bg-red-600`) en mode `danger`.
+- **10 occurrences remplacées** dans : NoteScreen, ChapterScreen, BooksScreen, BookDetailScreen (×2), EntitiesScreen (×2 confirms + 1 alert), DetectedEntitiesPanel (1 alert), TimelineScreen.
+- Raison : `window.confirm()` natif (1) gèle le tab Chrome côté extension "Claude in Chrome" donc je ne peux pas piloter les flows qui passent par un confirm, (2) UX cassée sur le thème dark de l'app. Voir mémoire `feedback_no_native_dialogs.md`.
+
+### Ce qui a été fait dans Slice 5
+
+- **V007** : table `events` (chronological_rank + title + description + tags text[] + source_note_id) + RLS owner-scoped + indexes (gin sur tags, btree sur world_id+rank) + trigger updated_at.
+- **Type TS** `TimelineEvent` dans `src/features/timeline/types.ts` (renommé pour éviter le conflit avec le DOM `Event` global).
+- **Data layer** `src/lib/queries/events.ts` : `useEvents`, `useCreateEvent`, `useUpdateEvent` (title, description, tags, chronologicalRank), `useDeleteEvent`.
+- **`useUpdateChapter` étendu** : accepte maintenant `chronologicalRank?: string` (pour le reorder cross-table dans la timeline).
+- **Helper** `src/features/timeline/timelineItems.ts` : `mergeTimelineItems(chapters, events)` retourne une liste `TimelineItem[]` triée par `chronological_rank` ASC ; `rankForMoveUp(items, idx)` / `rankForMoveDown(items, idx)` calculent le nouveau rank via `rankBetween`.
+- **Route** `/worlds/$worldId/timeline` ajoutée dans `src/router.tsx`.
+- **AppHeader** : nouveau tab "Timeline" (icon 📅, testid `tab-timeline`) à droite de "Books".
+- **`TimelineScreen`** : header back + count, form create event minimaliste, liste merged + reorder ↑↓ qui dispatch sur `useUpdateEvent` ou `useUpdateChapter` selon le kind, edit panel inline pour events (title/description/tags), delete via ConfirmDialog.
+- **`PromoteToEventModal`** : modal séparée (réutilise pattern `PromoteToChapterModal`), insert event avec `description = htmlToPlainText(note.content)` + `source_note_id` + `note_promotions` row (`target_kind='event'`).
+- **Bouton "Promote → event"** dans le header de NoteScreen, à côté de "Promote → chapter".
+- **9 tests Vitest** sur `timelineItems.ts` (merge sort, kind preserved, rank for move up/down sur empty/middle/edges).
+- **Workflow validé** : pour les slices avec migration, le user applique la migration AVANT le code complet pour permettre un test live au fur et à mesure (cf. mémoire `feedback_apply_migration_early.md`).
+
+### Décisions unilatérales Slice 5 (cf. `docs/slice-5-plan.md`)
+
+- Pas de drag-and-drop dès la Phase A — boutons `↑ ↓` (cohérent avec Slice 4). Migration vers dnd-kit en 5.x si demandé.
+- Form create event minimaliste (juste un input titre) — édition complète (description, tags) en mode "edit" inline après création.
+- Reorder cross-table : déplacer un chapter dans la timeline modifie SEULEMENT son `chronological_rank`, jamais son `reading_rank` (= cas flashback du design).
+- Tags d'event = `text[]`, input "tag1, tag2, tag3" en UI, pas de picker, pas de couleur.
+- Description d'event = `text` simple (textarea), pas Tiptap.
+- Promotion note → event : la note source n'est PAS archivée par défaut (events moins définitifs qu'un chapter).
+- Nouvel event créé avec `chronological_rank = nextRankAfter(allItems)` — ajouté à la fin, l'user remonte avec ↑.
+
+### Ce qui a été fait dans Slice 5
+
+- **V007** : table `events` (chronological_rank + title + description + tags text[] + source_note_id) + RLS owner-scoped + indexes (gin sur tags, btree sur world_id+rank) + trigger updated_at.
+- **Type TS** `TimelineEvent` dans `src/features/timeline/types.ts` (renommé pour éviter le conflit avec le DOM `Event` global).
+- **Data layer** `src/lib/queries/events.ts` : `useEvents`, `useCreateEvent`, `useUpdateEvent` (title, description, tags, chronologicalRank), `useDeleteEvent`.
+- **`useUpdateChapter` étendu** : accepte maintenant `chronologicalRank?: string` (pour le reorder cross-table dans la timeline).
+- **Helper** `src/features/timeline/timelineItems.ts` : `mergeTimelineItems(chapters, events)` retourne une liste `TimelineItem[]` triée par `chronological_rank` ASC ; `rankForMoveUp(items, idx)` / `rankForMoveDown(items, idx)` calculent le nouveau rank via `rankBetween`.
+- **Route** `/worlds/$worldId/timeline` ajoutée dans `src/router.tsx`.
+- **AppHeader** : nouveau tab "Timeline" (icon 📅, testid `tab-timeline`) à droite de "Books".
+- **`TimelineScreen`** : header back + count, form create event minimaliste, liste merged + reorder ↑↓ qui dispatch sur `useUpdateEvent` ou `useUpdateChapter` selon le kind, edit panel inline pour events (title/description/tags), delete confirm.
+- **`PromoteToEventModal`** : modal séparée (réutilise pattern `PromoteToChapterModal`), insert event avec `description = htmlToPlainText(note.content)` + `source_note_id` + `note_promotions` row (`target_kind='event'`).
+- **Bouton "Promote → event"** dans le header de NoteScreen, à côté de "Promote → chapter".
+- **9 tests Vitest** sur `timelineItems.ts` (merge sort, kind preserved, rank for move up/down sur empty/middle/edges).
+
+### Décisions unilatérales Slice 5 (cf. `docs/slice-5-plan.md`)
+
+- Pas de drag-and-drop dès la Phase A — boutons `↑ ↓` (cohérent avec Slice 4). Migration vers dnd-kit en 5.x si demandé.
+- Form create event minimaliste (juste un input titre) — édition complète (description, tags) en mode "edit" inline après création.
+- Reorder cross-table : déplacer un chapter dans la timeline modifie SEULEMENT son `chronological_rank`, jamais son `reading_rank` (= cas flashback du design).
+- Tags d'event = `text[]`, input "tag1, tag2, tag3" en UI, pas de picker, pas de couleur.
+- Description d'event = `text` simple (textarea), pas Tiptap.
+- Promotion note → event : la note source n'est PAS archivée par défaut (events moins définitifs qu'un chapter).
+- Nouvel event créé avec `chronological_rank = nextRankAfter(allItems)` — ajouté à la fin, l'user remonte avec ↑.
+
+---
+
 ## Status (2026-05-01 PM, Polish post-3/4 complet — Slice 4.y livré)
 
 **Tout le polish post-Slice 3/4 est livré et validé live.** Récapitulatif des paquets :
@@ -339,7 +412,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 | **2** ✅ | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat). Validé live 2026-05-01. | Apport du contexte structuré ✓ |
 | **3** ⏳ | **Auto-extraction d'entités** + promotion note → entité. Phase A validée live OpenAI 2026-05-01 ; Phase B (V004 + redeploy llm-call) en attente. | Cristallisation depuis brainstorm |
 | **4** ✅ | **Hiérarchie books/parts/chapters** + promotion note → chapitre + feature parity (chat + entities + extract sur chapters). Validé live 2026-05-01. | Structure narrative ✓ |
-| **5** | Timeline + ranks (events, drag to reorder, override chronological_rank) | Chronologie |
+| **5** ✅ | **Timeline + events + reorder ↑↓** (merge chapters + events par chronological_rank, edit/delete events inline, promote note → event). Validé live 2026-05-01. | Chronologie ✓ |
 | **6** | **Versioning append-only** + résolution "state at rank R" | Évolution dans le temps |
 | **7** | **Upscale** + **Proposals** (diffs structurés sur entités depuis chapitre) | Boucle écriture → mise à jour entités |
 | **8** | **Reader view** + summaries S/M/L + runs history + search + Chapter `published` flag | Polish + ergonomie |

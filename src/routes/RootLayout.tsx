@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { AppHeader } from '@/components/AppHeader';
 import { MonitoringPanel } from '@/components/MonitoringPanel';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface Props {
   children: ReactNode;
@@ -36,6 +37,7 @@ export function RootLayout({ children }: Props) {
       {session.status === 'authed' ? <AppHeader /> : null}
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
       {session.status === 'authed' ? <MonitoringPanel /> : null}
+      <ConfirmDialog />
     </div>
   );
 }

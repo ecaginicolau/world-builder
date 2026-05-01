@@ -3,6 +3,7 @@ import { useEntities, useCreateEntity } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
 import { logNotePromotion } from '@/lib/queries/notePromotions';
 import { useSession } from '@/features/auth/session';
+import { useAlert } from '@/lib/useConfirm';
 import type { EntityCandidate } from '@/lib/llm/extract';
 import type { LinkSource } from './linkSources';
 
@@ -29,6 +30,7 @@ export function DetectedEntitiesPanel({
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
   const createEntity = useCreateEntity();
+  const alert = useAlert();
   const [pickedTypeByName, setPickedTypeByName] = useState<Record<string, string>>({});
 
   const taggedIds = useMemo(
@@ -71,9 +73,10 @@ export function DetectedEntitiesPanel({
     const fallbackTypeId = typeIdByName.get(c.type.toLowerCase());
     const entityTypeId = pickedTypeId ?? fallbackTypeId;
     if (!entityTypeId) {
-      window.alert(
-        `Type "${c.type}" doesn't exist yet. Pick another type from the dropdown or create it in the Entities screen.`,
-      );
+      await alert({
+        title: `Type "${c.type}" doesn't exist yet`,
+        message: 'Pick another type from the dropdown, or create it in the Entities screen.',
+      });
       return;
     }
     const entity = await createEntity.mutateAsync({

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useWorld } from '@/lib/queries/worlds';
 import { useSession } from '@/features/auth/session';
+import { useAlert, useConfirm } from '@/lib/useConfirm';
 import {
   useCreateEntityType,
   useDeleteEntityType,
@@ -29,6 +30,8 @@ export function EntitiesScreen() {
   const createEntity = useCreateEntity();
   const updateEntity = useUpdateEntity();
   const deleteEntity = useDeleteEntity();
+  const confirm = useConfirm();
+  const alert = useAlert();
 
   const [newTypeName, setNewTypeName] = useState('');
   const [newEntityName, setNewEntityName] = useState('');
@@ -60,20 +63,23 @@ export function EntitiesScreen() {
     setNewEntityName('');
   }
 
-  function onDeleteType(t: EntityType) {
+  async function onDeleteType(t: EntityType) {
     const used = entitiesQ.data?.some((e) => e.entity_type_id === t.id);
     if (used) {
-      window.alert(
-        `Cannot delete type "${t.name}" — entities of this type still exist. Delete them first.`,
-      );
+      await alert({
+        title: `Can't delete type "${t.name}"`,
+        message: 'Entities of this type still exist. Delete them first.',
+      });
       return;
     }
-    if (!window.confirm(`Delete type "${t.name}"?`)) return;
+    const ok = await confirm({ title: `Delete type "${t.name}"?`, danger: true });
+    if (!ok) return;
     deleteType.mutate({ id: t.id, worldId });
   }
 
-  function onDeleteEntity(e: Entity) {
-    if (!window.confirm(`Delete entity "${e.name}"?`)) return;
+  async function onDeleteEntity(e: Entity) {
+    const ok = await confirm({ title: `Delete entity "${e.name}"?`, danger: true });
+    if (!ok) return;
     deleteEntity.mutate({ id: e.id, worldId });
   }
 

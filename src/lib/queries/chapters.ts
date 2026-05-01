@@ -108,13 +108,20 @@ export function useUpdateChapter() {
   return useMutation<
     Chapter,
     Error,
-    { id: string; title?: string | null; draft?: string; content?: string }
+    {
+      id: string;
+      title?: string | null;
+      draft?: string;
+      content?: string;
+      chronologicalRank?: string;
+    }
   >({
-    mutationFn: async ({ id, title, draft, content }) => {
+    mutationFn: async ({ id, title, draft, content, chronologicalRank }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title;
       if (draft !== undefined) patch.draft = draft;
       if (content !== undefined) patch.content = content;
+      if (chronologicalRank !== undefined) patch.chronological_rank = chronologicalRank;
       const { data, error } = await supabase
         .from('chapters')
         .update(patch)

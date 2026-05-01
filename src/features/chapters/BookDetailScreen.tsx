@@ -4,6 +4,7 @@ import { useBook } from '@/lib/queries/books';
 import { useCreatePart, useDeletePart, usePartsByBook } from '@/lib/queries/parts';
 import { useChaptersByPart, useCreateChapter, useDeleteChapter } from '@/lib/queries/chapters';
 import { useSession } from '@/features/auth/session';
+import { useConfirm } from '@/lib/useConfirm';
 import type { Part } from './types';
 
 export function BookDetailScreen() {
@@ -13,6 +14,7 @@ export function BookDetailScreen() {
   const partsQ = usePartsByBook(bookId);
   const createPart = useCreatePart();
   const deletePart = useDeletePart();
+  const confirm = useConfirm();
   const [partTitle, setPartTitle] = useState('');
 
   async function onAddPart(e: FormEvent) {
@@ -27,8 +29,13 @@ export function BookDetailScreen() {
     setPartTitle('');
   }
 
-  function onDeletePart(p: Part) {
-    if (!window.confirm(`Delete part "${p.title ?? '(untitled)'}"? Chapters under it will be deleted too.`)) return;
+  async function onDeletePart(p: Part) {
+    const ok = await confirm({
+      title: `Delete part "${p.title ?? '(untitled)'}"?`,
+      message: 'Chapters under it will be deleted too.',
+      danger: true,
+    });
+    if (!ok) return;
     deletePart.mutate({ id: p.id, bookId, worldId });
   }
 
@@ -108,6 +115,7 @@ function PartSection({ part, indexLabel, worldId, onDelete }: PartSectionProps) 
   const chaptersQ = useChaptersByPart(part.id);
   const createChapter = useCreateChapter();
   const deleteChapter = useDeleteChapter();
+  const confirm = useConfirm();
   const [chapterTitle, setChapterTitle] = useState('');
 
   async function onAddChapter(e: FormEvent) {
@@ -163,8 +171,12 @@ function PartSection({ part, indexLabel, worldId, onDelete }: PartSectionProps) 
               </Link>
               <button
                 type="button"
-                onClick={() => {
-                  if (!window.confirm(`Delete chapter "${c.title ?? '(untitled)'}"?`)) return;
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: `Delete chapter "${c.title ?? '(untitled)'}"?`,
+                    danger: true,
+                  });
+                  if (!ok) return;
                   deleteChapter.mutate({ id: c.id, partId: part.id, worldId });
                 }}
                 className="px-3 py-2 text-xs text-fg-muted hover:text-red-400"

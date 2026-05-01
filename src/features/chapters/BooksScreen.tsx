@@ -3,6 +3,7 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useWorld } from '@/lib/queries/worlds';
 import { useBooks, useCreateBook, useDeleteBook } from '@/lib/queries/books';
 import { useSession } from '@/features/auth/session';
+import { useConfirm } from '@/lib/useConfirm';
 
 export function BooksScreen() {
   const { worldId } = useParams({ from: '/worlds/$worldId/books' });
@@ -11,6 +12,7 @@ export function BooksScreen() {
   const booksQ = useBooks(worldId);
   const createBook = useCreateBook();
   const deleteBook = useDeleteBook();
+  const confirm = useConfirm();
   const [title, setTitle] = useState('');
 
   async function onCreate(e: FormEvent) {
@@ -24,8 +26,13 @@ export function BooksScreen() {
     setTitle('');
   }
 
-  function onDelete(id: string, t: string) {
-    if (!window.confirm(`Delete book "${t}"? All parts and chapters under it will be deleted too.`)) return;
+  async function onDelete(id: string, t: string) {
+    const ok = await confirm({
+      title: `Delete book "${t}"?`,
+      message: 'All parts and chapters under it will be deleted too.',
+      danger: true,
+    });
+    if (!ok) return;
     deleteBook.mutate({ id, worldId });
   }
 

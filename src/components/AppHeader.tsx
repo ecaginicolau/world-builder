@@ -10,12 +10,13 @@ function extractWorldId(pathname: string): string | null {
   return m ? m[1] : null;
 }
 
-type Section = 'notes' | 'entities' | 'books' | 'settings';
+type Section = 'notes' | 'entities' | 'books' | 'timeline' | 'settings';
 
 function activeSection(pathname: string, worldId: string | null): Section | null {
   if (!worldId) return null;
   if (pathname.includes('/entities')) return 'entities';
   if (pathname.includes('/books') || pathname.includes('/chapters/')) return 'books';
+  if (pathname.includes('/timeline')) return 'timeline';
   if (pathname.includes('/settings')) return 'settings';
   if (pathname === `/worlds/${worldId}` || pathname.startsWith(`/worlds/${worldId}/notes`)) {
     return 'notes';
@@ -115,6 +116,14 @@ export function AppHeader() {
             icon="📚"
             testid="tab-books"
           />
+          <SectionLink
+            to="/worlds/$worldId/timeline"
+            params={{ worldId }}
+            active={section === 'timeline'}
+            label="Timeline"
+            icon="📅"
+            testid="tab-timeline"
+          />
         </nav>
       ) : (
         <div />
@@ -153,7 +162,11 @@ export function AppHeader() {
 }
 
 interface SectionLinkProps {
-  to: '/worlds/$worldId' | '/worlds/$worldId/entities' | '/worlds/$worldId/books';
+  to:
+    | '/worlds/$worldId'
+    | '/worlds/$worldId/entities'
+    | '/worlds/$worldId/books'
+    | '/worlds/$worldId/timeline';
   params: { worldId: string };
   active: boolean;
   label: string;

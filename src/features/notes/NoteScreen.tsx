@@ -15,6 +15,8 @@ import { DetectedEntitiesPanel } from './DetectedEntitiesPanel';
 import { useAutoExtract } from './useAutoExtract';
 import { useNoteLinkSource } from './linkSources';
 import { PromoteToChapterModal } from './PromoteToChapterModal';
+import { PromoteToEventModal } from './PromoteToEventModal';
+import { useConfirm } from '@/lib/useConfirm';
 import type { EntityHighlightSpec } from './entityHighlightExtension';
 import type { TaggedEntity } from '@/lib/llm';
 
@@ -29,10 +31,12 @@ export function NoteScreen() {
   const linkSource = useNoteLinkSource(noteId);
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
+  const confirm = useConfirm();
   const chatPanelOpen = useUiStore((s) => s.chatPanelOpen);
   const setChatPanelOpen = useUiStore((s) => s.setChatPanelOpen);
   const [title, setTitle] = useState<string | null>(null);
   const [promoteOpen, setPromoteOpen] = useState(false);
+  const [promoteEventOpen, setPromoteEventOpen] = useState(false);
 
   const currentTitle = title ?? noteQ.data?.title ?? '';
 
@@ -92,8 +96,8 @@ export function NoteScreen() {
   }
 
   async function onDelete() {
-    const confirmed = window.confirm('Delete this note?');
-    if (!confirmed) return;
+    const ok = await confirm({ title: 'Delete this note?', danger: true });
+    if (!ok) return;
     await deleteNote.mutateAsync({ id: noteId, worldId });
     void navigate({ to: '/worlds/$worldId', params: { worldId } });
   }
@@ -125,6 +129,14 @@ export function NoteScreen() {
             data-testid="promote-to-chapter"
           >
             Promote → chapter
+          </button>
+          <button
+            type="button"
+            onClick={() => setPromoteEventOpen(true)}
+            className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
+            data-testid="promote-to-event"
+          >
+            Promote → event
           </button>
           <button
             type="button"
@@ -207,6 +219,15 @@ export function NoteScreen() {
       <PromoteToChapterModal
         open={promoteOpen}
         onClose={() => setPromoteOpen(false)}
+        worldId={worldId}
+        noteId={noteId}
+        noteTitle={currentTitle || undefined}
+        noteContent={noteQ.data.content}
+      />
+
+      <PromoteToEventModal
+        open={promoteEventOpen}
+        onClose={() => setPromoteEventOpen(false)}
         worldId={worldId}
         noteId={noteId}
         noteTitle={currentTitle || undefined}

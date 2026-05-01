@@ -20,6 +20,7 @@ import { useAutoExtract } from '@/features/notes/useAutoExtract';
 import { useChapterLinkSource } from '@/features/notes/linkSources';
 import type { EntityHighlightSpec } from '@/features/notes/entityHighlightExtension';
 import type { TaggedEntity } from '@/lib/llm';
+import { useConfirm } from '@/lib/useConfirm';
 
 export function ChapterScreen() {
   const { worldId, chapterId } = useParams({
@@ -34,6 +35,7 @@ export function ChapterScreen() {
   const linkSource = useChapterLinkSource(chapterId);
   const updateChapter = useUpdateChapter();
   const deleteChapter = useDeleteChapter();
+  const confirm = useConfirm();
   const chatPanelOpen = useUiStore((s) => s.chatPanelOpen);
   const setChatPanelOpen = useUiStore((s) => s.setChatPanelOpen);
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
@@ -91,7 +93,8 @@ export function ChapterScreen() {
 
   async function onDelete() {
     if (!chapterQ.data) return;
-    if (!window.confirm('Delete this chapter?')) return;
+    const ok = await confirm({ title: 'Delete this chapter?', danger: true });
+    if (!ok) return;
     await deleteChapter.mutateAsync({
       id: chapterId,
       partId: chapterQ.data.part_id,
