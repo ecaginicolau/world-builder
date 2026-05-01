@@ -1,37 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useEntities, useCreateEntity } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
-import { useNoteEntities, useTagEntity } from '@/lib/queries/noteEntities';
 import { logNotePromotion } from '@/lib/queries/notePromotions';
 import { useSession } from '@/features/auth/session';
 import type { EntityCandidate } from '@/lib/llm/extract';
+import type { LinkSource } from './linkSources';
 
 interface Props {
-  noteId: string;
+  /** Used as the source_excerpt anchor for note_promotions logging. */
+  noteIdForPromotionLog?: string;
   worldId: string;
   candidates: EntityCandidate[];
   status: 'idle' | 'pending' | 'success' | 'error';
   error?: string;
+  /** Wires tag/untag for the active parent (note or chapter). */
+  source: LinkSource;
 }
 
 export function DetectedEntitiesPanel({
-  noteId,
+  noteIdForPromotionLog,
   worldId,
   candidates,
   status,
   error,
+  source,
 }: Props) {
   const session = useSession();
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
-  const linksQ = useNoteEntities(noteId);
-  const tag = useTagEntity();
   const createEntity = useCreateEntity();
   const [pickedTypeByName, setPickedTypeByName] = useState<Record<string, string>>({});
 
   const taggedIds = useMemo(
-    () => new Set((linksQ.data ?? []).map((l) => l.entity_id)),
-    [linksQ.data],
+    () => new Set(source.links.map((l) => l.entityId)),
+    [source.links],
   );
   const typeIdByName = useMemo(() => {
     const m = new Map<string, string>();
@@ -39,22 +41,18 @@ export function DetectedEntitiesPanel({
     return m;
   }, [typesQ.data]);
 
-  // Silent auto-tag: any matched candidate not already tagged → tag it (pinned_manually=false).
+  // Silent auto-tag: any matched candidate not already tagged → tag it.
+  // For notes we mark pinnedManually=false (AUTO badge); chapters ignore it.
   useEffect(() => {
     if (session.status !== 'authed') return;
     if (status !== 'success') return;
-    if (!linksQ.data) return;
+    if (source.isLoading) return;
     for (const c of candidates) {
       if (!c.matchedEntityId) continue;
       if (taggedIds.has(c.matchedEntityId)) continue;
-      tag.mutate({
-        noteId,
-        entityId: c.matchedEntityId,
-        ownerId: session.session.user.id,
-        pinnedManually: false,
-      });
+      source.tag(c.matchedEntityId, { pinnedManually: false });
     }
-  }, [candidates, status, linksQ.data, taggedIds, session, noteId, tag]);
+  }, [candidates, status, source, taggedIds, session]);
 
   async function onCreateAndTag(c: EntityCandidate) {
     if (session.status !== 'authed') return;
@@ -74,14 +72,16 @@ export function DetectedEntitiesPanel({
       entityTypeId,
       name: c.name,
     });
-    await tag.mutateAsync({ noteId, entityId: entity.id, ownerId });
-    void logNotePromotion({
-      noteId,
-      ownerId,
-      targetKind: 'entity',
-      targetId: entity.id,
-      sourceExcerpt: c.name,
-    });
+    source.tag(entity.id);
+    if (noteIdForPromotionLog) {
+      void logNotePromotion({
+        noteId: noteIdForPromotionLog,
+        ownerId,
+        targetKind: 'entity',
+        targetId: entity.id,
+        sourceExcerpt: c.name,
+      });
+    }
   }
 
   const existingByName = useMemo(() => {

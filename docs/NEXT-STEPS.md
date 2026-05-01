@@ -2,6 +2,42 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 4.x livré et validé live)
+
+**Slice 4.x livré** — feature parity complète sur chapters : chat IA + linked entities (chip picker) + auto-extract + highlight in-editor. Validé live OpenAI sur "Confrontation à la forteresse".
+
+### Validation live
+- Naviguer vers un chapter → header avec back/Hide chat/Delete, title éditable, éditeur Tiptap avec highlights, panel **Linked entities (4)** auto-tagged depuis l'extraction (Iria/Vieille Forteresse/Edran Voss/Maitre Sorn colorés), panel **Detected entities · 4 matched, 0 new**, ChatPanel à droite.
+- Chat sent : "Donne moi un mot d'introduction pour le suivant" → réponse `« Fissure ». 🔥` (custom prompt per-world respecté : français, court, emoji feu).
+- Auto-extract debounce 2s (réglé en Settings) tournant sur le draft.
+- Pas de crash, pas de console error.
+
+### Bug surprise fixé en cours
+- Première version : infinite loop crash "Maximum update depth exceeded" sur ChapterScreen. Cause : `useChapterLinkSource` retournait un nouvel objet à chaque render (object literal), qui re-déclenchait le `useEffect` d'auto-tag dans DetectedEntitiesPanel. Fix : memoize les hooks `useNoteLinkSource` et `useChapterLinkSource` avec `useMemo` + `useCallback` pour stabiliser les références.
+
+### Refactor architectural
+- **`ChatPanel`** : props `noteId` → `parentKind: 'note' | 'chapter' | 'entity'` + `parentId`. Threads queries (`useThreads`, `useCreateThread`) prennent maintenant `parentKind` aussi.
+- **`NoteEntitiesPanel`** → **`LinkedEntitiesPanel`** (export renommé) qui prend une `LinkSource` injectée. Plus de couplage direct à `note_entities`.
+- **`DetectedEntitiesPanel`** : prend une `LinkSource` aussi + `noteIdForPromotionLog?` (optionnel — chapters n'ont pas de promotion log via cette panel).
+- **`useAutoExtract`** : `noteId` → `parentKind` + `parentId`, cache scopé par `${parentKind}:${parentId}` (évite les collisions si jamais une note et un chapter partageaient un id).
+- **`linkSources.ts`** (nouveau) : `useNoteLinkSource(noteId)` et `useChapterLinkSource(chapterId)` exposent une `LinkSource` uniforme. C'est le seul endroit qui sait quelle table utiliser. `trackAutoBadge` permet aux notes d'afficher AUTO sur les chips auto-tagged.
+- **`chapterParticipants.ts`** (nouveau) : queries `useChapterParticipants`, `useLinkChapterEntity`, `useUnlinkChapterEntity`.
+
+### Différences chapter vs note (volontaires)
+
+| Feature | Note | Chapter |
+|---|---|---|
+| Linked entities | `note_entities` (avec `pinned_manually`) | `chapter_participants` (sans) |
+| Badge AUTO | ✅ | ❌ (pas de pinned_manually en DB) |
+| Promotion log | écrit dans `note_promotions` | non |
+| Promote → chapter | bouton dans header | n/a |
+| Quick capture FAB | n/a (mobile-first sur notes) | n/a |
+| Auto-extract | sur `content` (notes.content) | sur `draft` (chapters.draft) |
+
+Si on veut le badge AUTO sur chapters plus tard : ajouter `pinned_manually boolean default true` à `chapter_participants` (mini-migration).
+
+---
+
 ## Status (2026-05-01 PM, Slice 3.y livré et validé live)
 
 **Slice 3.y livré** — couleurs par entity type + highlight des entities dans l'éditeur Tiptap. Validé live Chrome.

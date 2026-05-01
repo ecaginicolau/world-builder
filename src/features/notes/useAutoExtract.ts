@@ -25,25 +25,34 @@ function tinyHash(s: string): string {
 
 /**
  * Module-level cache: surviving across remounts (e.g. when the user navigates
- * away from a note and comes back). Key = noteId, value = { hash, candidates }.
+ * away and comes back). Key = parentKind:parentId, value = { hash, candidates }.
  * In-memory only — refresh wipes it, which is acceptable.
  */
 const cache = new Map<string, { hash: string; candidates: EntityCandidate[] }>();
 
 interface Args {
-  noteId: string;
+  /** 'note' | 'chapter' — used to scope the cache and (later) trigger heuristics. */
+  parentKind: 'note' | 'chapter';
+  parentId: string;
   worldId: string;
   plainText: string;
-  /** When false, the hook is dormant (e.g. while the note is loading). */
+  /** When false, the hook is dormant (e.g. while the parent is loading). */
   enabled?: boolean;
 }
 
-export function useAutoExtract({ noteId, worldId, plainText, enabled = true }: Args) {
+export function useAutoExtract({
+  parentKind,
+  parentId,
+  worldId,
+  plainText,
+  enabled = true,
+}: Args) {
+  const cacheKey = `${parentKind}:${parentId}`;
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
   const settingsQ = useUserSettings();
   const debounceMs = settingsQ.data?.autoExtractDebounceMs ?? DEFAULT_DEBOUNCE_MS;
-  const cached = cache.get(noteId);
+  const cached = cache.get(cacheKey);
   const [state, setState] = useState<State>(() =>
     cached
       ? { candidates: cached.candidates, status: 'success', fromHash: cached.hash }
@@ -53,7 +62,7 @@ export function useAutoExtract({ noteId, worldId, plainText, enabled = true }: A
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const c = cache.get(noteId);
+    const c = cache.get(cacheKey);
     if (c) {
       setState({ candidates: c.candidates, status: 'success', fromHash: c.hash });
     } else {
@@ -61,7 +70,7 @@ export function useAutoExtract({ noteId, worldId, plainText, enabled = true }: A
     }
     inFlightRef.current = false;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-  }, [noteId]);
+  }, [cacheKey]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -87,7 +96,7 @@ export function useAutoExtract({ noteId, worldId, plainText, enabled = true }: A
           };
         });
         const result = await extractor({ noteText: plainText, existing, knownTypes });
-        cache.set(noteId, { hash, candidates: result.candidates });
+        cache.set(cacheKey, { hash, candidates: result.candidates });
         setState({
           candidates: result.candidates,
           status: 'success',
@@ -107,7 +116,7 @@ export function useAutoExtract({ noteId, worldId, plainText, enabled = true }: A
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [plainText, enabled, state.fromHash, entitiesQ.data, typesQ.data, noteId, debounceMs]);
+  }, [plainText, enabled, state.fromHash, entitiesQ.data, typesQ.data, cacheKey, debounceMs]);
 
   return state;
 }

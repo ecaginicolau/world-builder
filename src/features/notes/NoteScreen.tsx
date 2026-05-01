@@ -10,9 +10,10 @@ import { NoteEditor } from './NoteEditor';
 import { htmlToPlainText } from '@/lib/html';
 import { resolveColor } from '@/lib/entityColors';
 import { ChatPanel } from './ChatPanel';
-import { NoteEntitiesPanel } from './NoteEntitiesPanel';
+import { LinkedEntitiesPanel } from './NoteEntitiesPanel';
 import { DetectedEntitiesPanel } from './DetectedEntitiesPanel';
 import { useAutoExtract } from './useAutoExtract';
+import { useNoteLinkSource } from './linkSources';
 import { PromoteToChapterModal } from './PromoteToChapterModal';
 import type { EntityHighlightSpec } from './entityHighlightExtension';
 import type { TaggedEntity } from '@/lib/llm';
@@ -25,6 +26,7 @@ export function NoteScreen() {
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
   const noteEntitiesQ = useNoteEntities(noteId);
+  const linkSource = useNoteLinkSource(noteId);
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
   const chatPanelOpen = useUiStore((s) => s.chatPanelOpen);
@@ -40,7 +42,8 @@ export function NoteScreen() {
   }, [noteQ.data]);
 
   const extract = useAutoExtract({
-    noteId,
+    parentKind: 'note',
+    parentId: noteId,
     worldId,
     plainText: noteTextForLlm,
   });
@@ -156,19 +159,21 @@ export function NoteScreen() {
             onChange={onContentChange}
             entityHighlights={entityHighlights}
           />
-          <NoteEntitiesPanel noteId={noteId} worldId={worldId} />
+          <LinkedEntitiesPanel worldId={worldId} source={linkSource} />
           <DetectedEntitiesPanel
-            noteId={noteId}
+            noteIdForPromotionLog={noteId}
             worldId={worldId}
             candidates={extract.candidates}
             status={extract.status}
             error={extract.error}
+            source={linkSource}
           />
         </div>
         {chatPanelOpen ? (
           <div className="min-h-0">
             <ChatPanel
-              noteId={noteId}
+              parentKind="note"
+              parentId={noteId}
               worldId={worldId}
               worldMemory={worldQ.data?.world_memory ?? worldQ.data?.description ?? undefined}
               worldCustomPrompt={worldQ.data?.custom_prompt ?? undefined}

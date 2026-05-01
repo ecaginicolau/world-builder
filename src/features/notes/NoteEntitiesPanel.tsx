@@ -1,26 +1,22 @@
 import { useMemo, useState } from 'react';
 import { useEntities } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
-import {
-  useNoteEntities,
-  useTagEntity,
-  useUntagEntity,
-} from '@/lib/queries/noteEntities';
-import { useSession } from '@/features/auth/session';
 import { chipBgFromHex, chipBorderFromHex, resolveColor } from '@/lib/entityColors';
+import type { LinkSource } from './linkSources';
 
 interface Props {
-  noteId: string;
   worldId: string;
+  source: LinkSource;
 }
 
-export function NoteEntitiesPanel({ noteId, worldId }: Props) {
-  const session = useSession();
-  const linksQ = useNoteEntities(noteId);
+/**
+ * Renders the linked entities for a parent (note or chapter) plus a picker to
+ * add more. Parent-agnostic: data + handlers come from `source`. Use
+ * `useNoteLinkSource(noteId)` or `useChapterLinkSource(chapterId)`.
+ */
+export function LinkedEntitiesPanel({ worldId, source }: Props) {
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
-  const tag = useTagEntity();
-  const untag = useUntagEntity();
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [filter, setFilter] = useState('');
@@ -34,10 +30,10 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
     [entitiesQ.data],
   );
 
-  const taggedIds = new Set((linksQ.data ?? []).map((l) => l.entity_id));
-  const linkByEntityId = new Map((linksQ.data ?? []).map((l) => [l.entity_id, l]));
-  const tagged = (linksQ.data ?? [])
-    .map((l) => entitiesById.get(l.entity_id))
+  const taggedIds = new Set(source.links.map((l) => l.entityId));
+  const linkByEntityId = new Map(source.links.map((l) => [l.entityId, l]));
+  const tagged = source.links
+    .map((l) => entitiesById.get(l.entityId))
     .filter((e): e is NonNullable<typeof e> => !!e);
 
   const filterLower = filter.toLowerCase().trim();
@@ -50,19 +46,12 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
     return false;
   });
 
-  function onTag(entityId: string) {
-    if (session.status !== 'authed') return;
-    tag.mutate({ noteId, entityId, ownerId: session.session.user.id });
-  }
-
-  function onUntag(entityId: string) {
-    untag.mutate({ noteId, entityId });
-  }
+  const aggregateError = source.error || entitiesQ.error || typesQ.error;
 
   return (
     <section
       className="rounded-md border border-border bg-bg-panel"
-      data-testid="note-entities-panel"
+      data-testid="linked-entities-panel"
     >
       <header className="flex items-center justify-between px-3 py-2">
         <div className="text-sm font-medium">Linked entities ({tagged.length})</div>
@@ -76,9 +65,9 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
         </button>
       </header>
 
-      {linksQ.error || entitiesQ.error || typesQ.error ? (
-        <p className="px-3 pb-2 text-xs text-red-400" data-testid="note-entities-error">
-          {(linksQ.error ?? entitiesQ.error ?? typesQ.error)!.message}
+      {aggregateError ? (
+        <p className="px-3 pb-2 text-xs text-red-400" data-testid="linked-entities-error">
+          {aggregateError.message}
         </p>
       ) : null}
 
@@ -87,7 +76,7 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
           {tagged.map((e) => {
             const t = typesById.get(e.entity_type_id);
             const link = linkByEntityId.get(e.id);
-            const isAuto = link?.pinned_manually === false;
+            const isAuto = source.trackAutoBadge && link?.pinnedManually === false;
             const color = t ? resolveColor(t.color, t.name) : null;
             return (
               <li
@@ -116,7 +105,7 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
                 ) : null}
                 <button
                   type="button"
-                  onClick={() => onUntag(e.id)}
+                  onClick={() => source.untag(e.id)}
                   className="text-fg-muted hover:text-red-400"
                   aria-label={`Remove ${e.name}`}
                   data-testid="entity-untag"
@@ -153,7 +142,7 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
                   <li key={e.id}>
                     <button
                       type="button"
-                      onClick={() => onTag(e.id)}
+                      onClick={() => source.tag(e.id)}
                       className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-bg-subtle"
                       data-testid="entity-picker-item"
                     >

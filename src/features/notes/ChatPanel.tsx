@@ -4,6 +4,7 @@ import {
   useInsertMessage,
   useMessages,
   useThreads,
+  type ThreadParentKind,
 } from '@/lib/queries/threads';
 import { useQueryClient } from '@tanstack/react-query';
 import { logRun } from '@/lib/queries/runs';
@@ -18,7 +19,8 @@ import {
 import type { ChatThread } from './types';
 
 interface Props {
-  noteId: string;
+  parentKind: ThreadParentKind;
+  parentId: string;
   worldId: string;
   worldMemory?: string;
   worldCustomPrompt?: string;
@@ -36,7 +38,8 @@ const TIERS: { value: ModelTier; label: string }[] = [
 const EFFORTS: ReasoningEffort[] = ['none', 'low', 'medium', 'high', 'xhigh'];
 
 export function ChatPanel({
-  noteId,
+  parentKind,
+  parentId,
   worldId,
   worldMemory,
   worldCustomPrompt,
@@ -46,7 +49,7 @@ export function ChatPanel({
 }: Props) {
   const session = useSession();
   const qc = useQueryClient();
-  const threadsQ = useThreads(noteId);
+  const threadsQ = useThreads(parentKind, parentId);
   const createThread = useCreateThread();
   const insertMessage = useInsertMessage();
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -57,6 +60,11 @@ export function ChatPanel({
   const [reasoning, setReasoning] = useState<ReasoningEffort>('none');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Reset active thread on parent switch (e.g. user navigates to a different note/chapter).
+  useEffect(() => {
+    setActiveThreadId(null);
+  }, [parentKind, parentId]);
 
   useEffect(() => {
     if (!activeThreadId && threadsQ.data && threadsQ.data.length > 0) {
@@ -79,7 +87,8 @@ export function ChatPanel({
     const t = await createThread.mutateAsync({
       worldId,
       ownerId: session.session.user.id,
-      noteId,
+      parentKind,
+      parentId,
     });
     setActiveThreadId(t.id);
     return t;
@@ -90,7 +99,8 @@ export function ChatPanel({
     const t = await createThread.mutateAsync({
       worldId,
       ownerId: session.session.user.id,
-      noteId,
+      parentKind,
+      parentId,
     });
     setActiveThreadId(t.id);
   }
@@ -155,7 +165,7 @@ export function ChatPanel({
         status: 'success',
         durationMs: Math.round(performance.now() - startedAt),
         usage: resp.tokensUsed ?? null,
-        inputSummary: { tier, reasoning, noteId, historyLength: history.length },
+        inputSummary: { tier, reasoning, parentKind, parentId, historyLength: history.length },
       }).then(() => {
         void qc.invalidateQueries({ queryKey: ['runs'] });
       });
@@ -166,14 +176,14 @@ export function ChatPanel({
         worldId,
         ownerId,
         kind: 'chat',
-        parentKind: activeThread ? 'thread' : 'note',
-        parentId: activeThread?.id ?? noteId,
+        parentKind: activeThread ? 'thread' : (parentKind as 'note' | 'chapter'),
+        parentId: activeThread?.id ?? parentId,
         model: 'unknown',
         provider: getLlm().name,
         status: 'error',
         durationMs: Math.round(performance.now() - startedAt),
         errorMessage: msg.slice(0, 1000),
-        inputSummary: { tier, reasoning, noteId },
+        inputSummary: { tier, reasoning, parentKind, parentId },
       }).then(() => {
         void qc.invalidateQueries({ queryKey: ['runs'] });
       });
@@ -311,7 +321,7 @@ export function ChatPanel({
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about this note…"
+          placeholder="Ask about this…"
           className="flex-1 px-3 py-2 text-sm"
           data-testid="chat-input"
           disabled={sending}

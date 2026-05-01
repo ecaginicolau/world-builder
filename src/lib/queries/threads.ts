@@ -2,25 +2,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ChatThread } from '@/features/notes/types';
 
+export type ThreadParentKind = 'note' | 'chapter' | 'entity';
+
 export const threadsKeys = {
-  byNote: (noteId: string) => ['threads', 'byNote', noteId] as const,
+  byParent: (kind: ThreadParentKind, id: string) =>
+    ['threads', 'byParent', kind, id] as const,
   messages: (threadId: string) => ['threads', threadId, 'messages'] as const,
 };
 
-export function useThreads(noteId: string) {
+export function useThreads(parentKind: ThreadParentKind, parentId: string) {
   return useQuery<ChatThread[], Error>({
-    queryKey: threadsKeys.byNote(noteId),
+    queryKey: threadsKeys.byParent(parentKind, parentId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('chat_threads')
         .select('*')
-        .eq('parent_kind', 'note')
-        .eq('parent_id', noteId)
+        .eq('parent_kind', parentKind)
+        .eq('parent_id', parentId)
         .order('created_at', { ascending: true });
       if (error) throw error;
       return (data ?? []) as ChatThread[];
     },
-    enabled: !!noteId,
+    enabled: !!parentId,
   });
 }
 
@@ -46,16 +49,22 @@ export function useCreateThread() {
   return useMutation<
     ChatThread,
     Error,
-    { worldId: string; ownerId: string; noteId: string; title?: string | null }
+    {
+      worldId: string;
+      ownerId: string;
+      parentKind: ThreadParentKind;
+      parentId: string;
+      title?: string | null;
+    }
   >({
-    mutationFn: async ({ worldId, ownerId, noteId, title }) => {
+    mutationFn: async ({ worldId, ownerId, parentKind, parentId, title }) => {
       const { data, error } = await supabase
         .from('chat_threads')
         .insert({
           world_id: worldId,
           owner_id: ownerId,
-          parent_kind: 'note',
-          parent_id: noteId,
+          parent_kind: parentKind,
+          parent_id: parentId,
           title: title ?? null,
         })
         .select('*')
@@ -64,7 +73,12 @@ export function useCreateThread() {
       return data as ChatThread;
     },
     onSuccess: (thread) => {
-      void qc.invalidateQueries({ queryKey: threadsKeys.byNote(thread.parent_id) });
+      void qc.invalidateQueries({
+        queryKey: threadsKeys.byParent(
+          thread.parent_kind as ThreadParentKind,
+          thread.parent_id,
+        ),
+      });
     },
   });
 }
