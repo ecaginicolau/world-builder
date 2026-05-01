@@ -15,7 +15,12 @@ interface Options {
   entities: EntityHighlightSpec[];
 }
 
-const pluginKey = new PluginKey<DecorationSet>('entityHighlight');
+interface PluginState {
+  decs: DecorationSet;
+  matches: CompiledMatch[];
+}
+
+const pluginKey = new PluginKey<PluginState>('entityHighlight');
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -77,25 +82,28 @@ export const EntityHighlight = Extension.create<Options>({
   addProseMirrorPlugins() {
     const initialEntities = this.options.entities;
     return [
-      new Plugin({
+      new Plugin<PluginState>({
         key: pluginKey,
         state: {
-          init: (_config, instance) =>
-            buildDecorations(instance.doc, compile(initialEntities)),
+          init: (_config, instance) => {
+            const matches = compile(initialEntities);
+            return { decs: buildDecorations(instance.doc, matches), matches };
+          },
           apply: (tr, old) => {
             const meta = tr.getMeta(pluginKey);
+            let matches = old.matches;
             if (meta && meta.entities) {
-              return buildDecorations(tr.doc, compile(meta.entities));
+              matches = compile(meta.entities);
             }
-            if (tr.docChanged) {
-              return old.map(tr.mapping, tr.doc);
+            if (meta || tr.docChanged) {
+              return { decs: buildDecorations(tr.doc, matches), matches };
             }
             return old;
           },
         },
         props: {
           decorations(state) {
-            return pluginKey.getState(state);
+            return pluginKey.getState(state)?.decs;
           },
         },
       }),
