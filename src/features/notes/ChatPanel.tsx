@@ -27,6 +27,15 @@ interface Props {
   noteTitle?: string;
   noteContextText: string;
   taggedEntities?: TaggedEntity[];
+  /**
+   * If provided AND the user has the PCC checkbox enabled, called at send-time to
+   * fetch the previous-chapter context block. Returning '' (or null/undefined)
+   * means "no previous chapters available" — the checkbox stays visible but the
+   * prompt isn't augmented.
+   */
+  buildPccBlock?: () => Promise<string>;
+  /** Number of slots in the PCC config (drives checkbox visibility). 0 hides it. */
+  pccSlotCount?: number;
 }
 
 const TIERS: { value: ModelTier; label: string }[] = [
@@ -46,6 +55,8 @@ export function ChatPanel({
   noteTitle,
   noteContextText,
   taggedEntities,
+  buildPccBlock,
+  pccSlotCount = 0,
 }: Props) {
   const session = useSession();
   const qc = useQueryClient();
@@ -59,6 +70,7 @@ export function ChatPanel({
   const [tier, setTier] = useState<ModelTier>('medium');
   const [reasoning, setReasoning] = useState<ReasoningEffort>('none');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [includePcc, setIncludePcc] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Reset active thread on parent switch (e.g. user navigates to a different note/chapter).
@@ -131,6 +143,15 @@ export function ChatPanel({
         content: m.content,
       }));
 
+      let pccBlock = '';
+      if (includePcc && buildPccBlock) {
+        try {
+          pccBlock = await buildPccBlock();
+        } catch (e) {
+          console.warn('[chat] PCC build failed, sending without:', e);
+        }
+      }
+
       const llm = getLlm();
       const resp = await llm.chat({
         worldMemory,
@@ -138,6 +159,7 @@ export function ChatPanel({
         noteTitle,
         noteContext: noteContextText,
         taggedEntities,
+        previousChaptersBlock: pccBlock,
         history,
         userMessage: userText,
         tier,
@@ -276,6 +298,18 @@ export function ChatPanel({
               ))}
             </select>
           </div>
+          {pccSlotCount > 0 && buildPccBlock ? (
+            <label className="flex items-center gap-2" data-testid="chat-pcc-toggle">
+              <input
+                type="checkbox"
+                checked={includePcc}
+                onChange={(e) => setIncludePcc(e.target.checked)}
+              />
+              <span>
+                Include previous {pccSlotCount} chapter{pccSlotCount > 1 ? 's' : ''} as context
+              </span>
+            </label>
+          ) : null}
         </div>
       ) : null}
 

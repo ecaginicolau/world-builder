@@ -3,6 +3,8 @@ import { useParams } from '@tanstack/react-router';
 import { useUpdateWorld, useWorld } from '@/lib/queries/worlds';
 import { useUpdateUserSettings, useUserSettings } from '@/lib/queries/userSettings';
 import type { ModelTier } from '@/lib/llm';
+import type { ContextLevel } from '@/features/worlds/types';
+import { DEFAULT_PCC } from '@/features/worlds/types';
 
 const DEFAULT_DEBOUNCE = 5000;
 const TIERS: { value: ModelTier; label: string }[] = [
@@ -20,7 +22,7 @@ export function SettingsScreen() {
 
   const [debounce, setDebounce] = useState<string>('');
   const [customPrompt, setCustomPrompt] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState<'global' | 'world' | 'tiers' | null>(null);
+  const [savedFlash, setSavedFlash] = useState<'global' | 'world' | 'tiers' | 'pcc' | null>(null);
 
   useEffect(() => {
     const v = settingsQ.data?.prefs.autoExtractDebounceMs ?? DEFAULT_DEBOUNCE;
@@ -33,9 +35,14 @@ export function SettingsScreen() {
     }
   }, [customPrompt, worldQ.data]);
 
-  function showSaved(which: 'global' | 'world' | 'tiers') {
+  function showSaved(which: 'global' | 'world' | 'tiers' | 'pcc') {
     setSavedFlash(which);
     setTimeout(() => setSavedFlash((s) => (s === which ? null : s)), 1500);
+  }
+
+  async function onPccChange(next: ContextLevel[]) {
+    await updateWorld.mutateAsync({ id: worldId, previousChapterContext: next });
+    showSaved('pcc');
   }
 
   async function onSaveDebounce(e: FormEvent) {
@@ -57,7 +64,7 @@ export function SettingsScreen() {
   }
 
   async function onTierChange(
-    field: 'upscaleTier' | 'proposalsTier' | 'extractTier',
+    field: 'upscaleTier' | 'proposalsTier' | 'extractTier' | 'summarizeTier',
     value: ModelTier,
   ) {
     await updateSettings.mutateAsync({ [field]: value });
@@ -87,7 +94,7 @@ export function SettingsScreen() {
         <p className="text-xs text-fg-muted">
           Pick the model size for each automated task. Saved as you change.
         </p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <TierField
             label="Upscale"
             value={settingsQ.data?.upscaleTier ?? 'best'}
@@ -106,7 +113,37 @@ export function SettingsScreen() {
             onChange={(v) => onTierChange('extractTier', v)}
             testid="tier-extract"
           />
+          <TierField
+            label="Summarize"
+            value={settingsQ.data?.summarizeTier ?? 'cheapest'}
+            onChange={(v) => onTierChange('summarizeTier', v)}
+            testid="tier-summarize"
+          />
         </div>
+      </section>
+
+      <section className="space-y-3" data-testid="settings-pcc">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-muted">
+            Previous-chapter context (PCC)
+          </h2>
+          {savedFlash === 'pcc' ? (
+            <span className="text-xs text-emerald-400" data-testid="pcc-saved">
+              Saved
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-fg-muted">
+          When upscaling a chapter or chatting in a chapter, you can include the previous
+          chapters in the prompt. The list below configures how — left to right = most recent
+          to oldest. Each slot is one chapter at a given level: <code>raw</code> (full text)
+          or <code>S/M/L</code> summary. Defaults to <code>raw → L → M → S → S → S</code>.
+        </p>
+        <PccEditor
+          value={worldQ.data?.previous_chapter_context ?? DEFAULT_PCC}
+          onChange={onPccChange}
+          disabled={updateWorld.isPending || !worldQ.data}
+        />
       </section>
 
       <section className="space-y-3" data-testid="settings-global">
@@ -222,5 +259,119 @@ function TierField({
         ))}
       </select>
     </label>
+  );
+}
+
+const PCC_LEVELS: ContextLevel[] = ['raw', 'L', 'M', 'S'];
+
+function levelStyle(level: ContextLevel): string {
+  switch (level) {
+    case 'raw': return 'bg-purple-500/20 border-purple-500/40 text-purple-200';
+    case 'L':   return 'bg-blue-500/20 border-blue-500/40 text-blue-200';
+    case 'M':   return 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200';
+    case 'S':   return 'bg-amber-500/20 border-amber-500/40 text-amber-200';
+  }
+}
+
+function PccEditor({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ContextLevel[];
+  onChange: (next: ContextLevel[]) => void;
+  disabled: boolean;
+}) {
+  function append(level: ContextLevel) {
+    onChange([...value, level]);
+  }
+  function removeAt(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
+  }
+  function move(idx: number, dir: -1 | 1) {
+    const next = [...value];
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= next.length) return;
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    onChange(next);
+  }
+  function reset() {
+    onChange(DEFAULT_PCC);
+  }
+  return (
+    <div className="space-y-3" data-testid="pcc-editor">
+      <div className="flex flex-wrap items-center gap-2 rounded border border-fg-subtle/30 bg-bg-subtle/40 p-3">
+        {value.length === 0 ? (
+          <span className="text-xs italic text-fg-muted">
+            Empty — no previous chapters will be included
+          </span>
+        ) : (
+          value.map((level, idx) => (
+            <div
+              key={`${idx}-${level}`}
+              className={`flex items-center gap-1 rounded border px-2 py-1 text-xs font-mono ${levelStyle(level)}`}
+              data-testid={`pcc-chip-${idx}`}
+            >
+              <span className="opacity-50">#{idx + 1}</span>
+              <span className="font-bold">{level}</span>
+              <button
+                type="button"
+                disabled={disabled || idx === 0}
+                onClick={() => move(idx, -1)}
+                className="ml-1 text-fg-muted hover:text-fg disabled:opacity-30"
+                aria-label="Move left"
+                data-testid={`pcc-chip-${idx}-up`}
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                disabled={disabled || idx === value.length - 1}
+                onClick={() => move(idx, 1)}
+                className="text-fg-muted hover:text-fg disabled:opacity-30"
+                aria-label="Move right"
+                data-testid={`pcc-chip-${idx}-down`}
+              >
+                →
+              </button>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => removeAt(idx)}
+                className="ml-1 text-fg-muted hover:text-red-400"
+                aria-label="Remove"
+                data-testid={`pcc-chip-${idx}-remove`}
+              >
+                ×
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <span className="text-xs text-fg-muted">Add slot:</span>
+        {PCC_LEVELS.map((level) => (
+          <button
+            key={level}
+            type="button"
+            disabled={disabled}
+            onClick={() => append(level)}
+            className={`rounded border px-2 py-0.5 text-xs font-mono hover:opacity-80 disabled:opacity-50 ${levelStyle(level)}`}
+            data-testid={`pcc-add-${level}`}
+          >
+            + {level}
+          </button>
+        ))}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={reset}
+          className="ml-auto rounded border border-fg-subtle/30 px-2 py-0.5 text-xs hover:bg-bg-subtle disabled:opacity-50"
+          data-testid="pcc-reset"
+        >
+          Reset to default
+        </button>
+      </div>
+    </div>
   );
 }

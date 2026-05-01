@@ -29,6 +29,10 @@ export function buildMessages(req: ChatRequest): ChatMessage[] {
     systemParts.push(lines.join('\n'));
   }
 
+  if (req.previousChaptersBlock && req.previousChaptersBlock.trim()) {
+    systemParts.push(req.previousChaptersBlock.trim());
+  }
+
   const messages: ChatMessage[] = [];
   if (systemParts.length > 0 || (req.worldCustomPrompt && req.worldCustomPrompt.trim())) {
     const baseInstructions =

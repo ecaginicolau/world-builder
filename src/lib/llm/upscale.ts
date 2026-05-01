@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import { modelForTier } from './openai';
 import type { ChatMessage, ModelTier } from './types';
+import type { PccSlot } from '@/features/chapters/pcc';
+import { formatPccBlock } from '@/features/chapters/pcc';
 
 /** A snapshot of an entity, resolved at the chapter's chronological_rank. */
 export interface UpscaleEntityCard {
@@ -21,6 +23,8 @@ export interface UpscaleRequest {
   userPrompt: string;
   /** Linked entity cards, resolved at the chapter's chronological_rank. */
   entityCards: UpscaleEntityCard[];
+  /** Optional previous-chapter context. Empty array if disabled. */
+  previousChapters?: PccSlot[];
   /** Defaults to 'best'. */
   tier?: ModelTier;
 }
@@ -60,6 +64,10 @@ export function buildUpscaleMessages(req: UpscaleRequest): ChatMessage[] {
       '# Entities (state at this chapter\'s chronological rank)',
       lines.join('\n'),
     );
+  }
+  if (req.previousChapters && req.previousChapters.length > 0) {
+    const block = formatPccBlock(req.previousChapters);
+    if (block) blocks.push('', block);
   }
   if (req.chapterTitle) {
     blocks.push('', `# Chapter title`, req.chapterTitle);

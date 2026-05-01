@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useWorlds } from '@/lib/queries/worlds';
 import { useMonitoringToggle } from './useMonitoringToggle';
+import { useGlobalSearch } from '@/lib/useGlobalSearch';
 
 const WORLD_ID_RE = /^\/worlds\/([0-9a-f-]{36})(?:\/|$)/i;
 
@@ -10,13 +11,15 @@ function extractWorldId(pathname: string): string | null {
   return m ? m[1] : null;
 }
 
-type Section = 'notes' | 'entities' | 'books' | 'timeline' | 'settings';
+type Section = 'notes' | 'entities' | 'books' | 'timeline' | 'read' | 'runs' | 'settings';
 
 function activeSection(pathname: string, worldId: string | null): Section | null {
   if (!worldId) return null;
   if (pathname.includes('/entities')) return 'entities';
+  if (pathname.includes('/read')) return 'read';
   if (pathname.includes('/books') || pathname.includes('/chapters/')) return 'books';
   if (pathname.includes('/timeline')) return 'timeline';
+  if (pathname.includes('/runs')) return 'runs';
   if (pathname.includes('/settings')) return 'settings';
   if (pathname === `/worlds/${worldId}` || pathname.startsWith(`/worlds/${worldId}/notes`)) {
     return 'notes';
@@ -29,6 +32,7 @@ export function AppHeader() {
   const navigate = useNavigate();
   const worldsQ = useWorlds();
   const monitoring = useMonitoringToggle();
+  const globalSearch = useGlobalSearch();
   const [worldMenuOpen, setWorldMenuOpen] = useState(false);
 
   const worldId = extractWorldId(pathname);
@@ -124,12 +128,31 @@ export function AppHeader() {
             icon="📅"
             testid="tab-timeline"
           />
+          <SectionLink
+            to="/worlds/$worldId/read"
+            params={{ worldId }}
+            active={section === 'read'}
+            label="Read"
+            icon="📖"
+            testid="tab-read"
+          />
         </nav>
       ) : (
         <div />
       )}
 
       <div className="flex items-center gap-1">
+        {worldId ? (
+          <button
+            type="button"
+            onClick={() => globalSearch.open(worldId)}
+            className="bg-bg-subtle px-2 py-1 text-sm hover:bg-bg-panel"
+            title="Search (Ctrl/Cmd+K)"
+            data-testid="search-toggle"
+          >
+            🔍
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={monitoring.toggle}
@@ -166,7 +189,8 @@ interface SectionLinkProps {
     | '/worlds/$worldId'
     | '/worlds/$worldId/entities'
     | '/worlds/$worldId/books'
-    | '/worlds/$worldId/timeline';
+    | '/worlds/$worldId/timeline'
+    | '/worlds/$worldId/read';
   params: { worldId: string };
   active: boolean;
   label: string;

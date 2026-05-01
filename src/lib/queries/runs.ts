@@ -43,6 +43,12 @@ export interface RunRow {
 
 export const runsKeys = {
   recent: (worldId: string | null, limit: number) => ['runs', 'recent', worldId, limit] as const,
+  page: (
+    worldId: string | null,
+    filter: { kind?: RunKind | 'all'; status?: RunStatus | 'all'; range?: string },
+    page: number,
+    pageSize: number,
+  ) => ['runs', 'page', worldId, filter, page, pageSize] as const,
 };
 
 export function useRecentRuns(worldId: string | null, limit = 20, enabled = true) {
@@ -62,6 +68,55 @@ export function useRecentRuns(worldId: string | null, limit = 20, enabled = true
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as RunRow[];
+    },
+  });
+}
+
+export interface RunsPage {
+  rows: RunRow[];
+  total: number;
+}
+
+export type RangeKey = 'today' | '7d' | '30d' | 'all';
+
+function rangeStart(range: RangeKey): Date | null {
+  const now = new Date();
+  if (range === 'today') {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  if (range === '7d') return new Date(now.getTime() - 7 * 24 * 3600_000);
+  if (range === '30d') return new Date(now.getTime() - 30 * 24 * 3600_000);
+  return null;
+}
+
+export function useRunsPage(
+  worldId: string | null,
+  filter: { kind: RunKind | 'all'; status: RunStatus | 'all'; range: RangeKey },
+  page: number,
+  pageSize: number,
+) {
+  return useQuery<RunsPage, Error>({
+    queryKey: runsKeys.page(worldId, filter, page, pageSize),
+    enabled: !!worldId,
+    queryFn: async () => {
+      let q = supabase
+        .from('runs')
+        .select(
+          'id, world_id, kind, parent_kind, parent_id, model, provider, status, duration_ms, usage, error_message, input_summary, created_at',
+          { count: 'exact' },
+        )
+        .order('created_at', { ascending: false });
+      if (worldId) q = q.eq('world_id', worldId);
+      if (filter.kind !== 'all') q = q.eq('kind', filter.kind);
+      if (filter.status !== 'all') q = q.eq('status', filter.status);
+      const start = rangeStart(filter.range);
+      if (start) q = q.gte('created_at', start.toISOString());
+      q = q.range(page * pageSize, page * pageSize + pageSize - 1);
+      const { data, error, count } = await q;
+      if (error) throw error;
+      return { rows: (data ?? []) as RunRow[], total: count ?? 0 };
     },
   });
 }

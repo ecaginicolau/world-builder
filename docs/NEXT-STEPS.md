@@ -2,6 +2,48 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 8 livré, V010 appliquée, validation locale + smoke Chrome)
+
+**Slice 8 livré, V010 appliquée**, six features livrées :
+
+1. **Reader view** (`/read` + `/read/:chapterId`) — TOC books → parts → chapters, page lecture typo prose, prev/next, mini-popup entity au state du chapter via `resolveStateAtRank`. Drafts inclus avec badge.
+2. **Summaries S/M/L** — nouveau tab `Summary` dans le right panel ChapterScreen, generate par niveau via LLM (`src/lib/llm/summaries.ts`, tier `cheapest` par défaut, configurable). Save direct dans `chapters.summary_{s,m,l}`. 6 tests Vitest.
+3. **PCC (Previous-Chapter Context)** — config `worlds.previous_chapter_context jsonb` editable via SettingsScreen (chips colorés, reorder ←/→, remove, add raw/L/M/S, reset to default). Default `[raw,L,M,S,S,S]`. Resolver `src/features/chapters/pcc.ts` avec fallback chain S→M→L→raw. Wiring upscale + chat-on-chapter via checkbox "Include previous N chapters". 12 tests Vitest.
+4. **Search global** — modal Cmd+K (mounté global dans RootLayout), 3 requêtes parallèles via `.textSearch('search_text', q, {config:'simple'})` sur notes / chapter_versions / entities, résultats groupés. Bouton 🔍 dans AppHeader. Click → navigate.
+5. **Chapter `published` flag** — toggle Publish/Unpublish dans le header ChapterScreen. Quand published : éditeur read-only, upscale/manual save/propose updates/summary generate tous désactivés. Badge `PUBLISHED` visible. Reader affiche aussi les drafts (badge DRAFT).
+6. **Runs history** — page `/runs` avec filtres (kind, status, range today/7d/30d/all) + pagination 50/page + agrégats tokens. Footer Monitoring garde son comportement, ajoute "View all →".
+
+**Demo guide** : [docs/demo/slice-8-reader-summaries-search-runs.md](./demo/slice-8-reader-summaries-search-runs.md).
+**Plan détaillé** : [docs/slice-8-plan.md](./slice-8-plan.md).
+
+### Migration V010 — galère IMMUTABLE
+
+Première version utilisait des `tsvector` generated columns. Postgres a refusé : `to_tsvector('simple', text)` est STABLE (le cast `text → regconfig` dépend de search_path). Wrapper IMMUTABLE pas suffisant. Deuxième version : generated TEXT columns + expression GIN index. Toujours refusé. Troisième et finale : **trigger-maintained `search_text text` columns** (pas de generated, pas d'IMMUTABLE check) + GIN expression index avec `to_tsvector('simple', search_text)`. Bulletproof. Voir commentaires dans `V010__slice_8_search_pcc.sql`.
+
+### Bug surprise fixé pendant le pilote
+
+`chapter_versions` embed sur `chapters` failait avec `Could not embed because more than one relationship was found`. Cause : 2 FKs entre les deux tables (`chapter_versions.chapter_id` ET `chapters.final_version_id`). Fix : split en 2 requêtes (search + lookup par chapter_id séparé) dans `src/lib/queries/search.ts`.
+
+### Validation locale Slice 8
+
+- typecheck ✓ · lint ✓ · 83 Vitest ✓ (12 nouveaux PCC + 6 nouveaux summaries) · 4 Playwright ✓ · build prod ✓
+- Pilote Chrome smoke : Worlds list ✓, Reader page (TOC vide pour le smoke world) ✓, Settings PCC editor avec chips colorés default `[raw,L,M,S,S,S]` ✓, Settings Summarize tier ✓, Search modal Ctrl+K + query "smoke" → "No results." (FTS marche, juste rien à matcher dans le smoke world) ✓
+- Validation live LLM (summaries genere, upscale avec PCC, propose updates blocked when published) à faire avec un world peuplé.
+
+### Décisions tranchées Slice 8
+
+- **PCC ordering** : `chronological_rank` (cohérence narrative), pas `reading_rank`.
+- **PCC fallback** : si summary manque, downgrade `S→M→L→raw`. Si même raw vide, le chapter est skip.
+- **PCC checkbox** : default ON dans upscale et chat-on-chapter. Disabled visible quand `pcc.length === 0`.
+- **Reader = tous les chapters** (badge DRAFT) — auto-relecture utile à l'auteur. "Published only" = setting toggle plus tard.
+- **Search config** = `'simple'` (pas de stemming FR/EN).
+- **FTS storage** = trigger-maintained `search_text text` (pas tsvector generated columns).
+- **Summaries** : pas de versioning, overwrite à chaque generate.
+- **Published** : flag pur, pas de snapshot. Bloque toutes les mutations chapter (manual edit, upscale, propose updates, summary generate, change final).
+- **Runs page** : agrégats simples côté client sur la page courante.
+
+---
+
 ## Status (2026-05-01 PM, Slice 7 livré et validé live)
 
 **Slice 7 livré, V009 appliquée, full flow validé live OpenAI.** Boucle écriture → mise à jour entities :
@@ -510,7 +552,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 | **5** ✅ | **Timeline + events + reorder ↑↓** (merge chapters + events par chronological_rank, edit/delete events inline, promote note → event). Validé live 2026-05-01. | Chronologie ✓ |
 | **6** ✅ | **Versioning append-only** + résolution "state at rank R" + vraies pages d'édition entity & entity_type + aliases enfin exposés. Validé live 2026-05-01. | Évolution dans le temps ✓ |
 | **7** ✅ | **Upscale** (text versioning de chapter, prompt user-driven) + **Proposals** (diffs structurés sur entities → entity_versions). Validé live 2026-05-01. | Boucle écriture → mise à jour entities ✓ |
-| **8** | **Reader view** + summaries S/M/L + runs history + search + Chapter `published` flag | Polish + ergonomie |
+| **8** ✅ | **Reader view** + summaries S/M/L + **PCC** (Previous-Chapter Context) + global search + chapter `published` flag + runs history page. Validé locale + smoke Chrome 2026-05-01. | Polish + ergonomie ✓ |
 
 ⭐ Slice 1 = pivot du produit ; à viser tôt.
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useRouterState } from '@tanstack/react-router';
+import { Link, useRouterState } from '@tanstack/react-router';
 import { useRecentRuns, type RunRow } from '@/lib/queries/runs';
 import { useMonitoringToggle } from './useMonitoringToggle';
 
@@ -39,16 +39,28 @@ export function MonitoringPanel() {
           📊 Monitoring · last 20 runs
           {worldId ? '' : ' (pick a world to see runs)'}
         </span>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="flex h-8 w-10 items-center justify-center text-base text-fg-muted hover:bg-bg-panel hover:text-fg"
-          aria-label="Close monitoring panel"
-          title="Close monitoring panel"
-          data-testid="monitoring-close"
-        >
-          ×
-        </button>
+        <div className="flex items-center">
+          {worldId ? (
+            <Link
+              to="/worlds/$worldId/runs"
+              params={{ worldId }}
+              className="px-2 text-fg-muted hover:text-fg"
+              data-testid="monitoring-view-all"
+            >
+              View all →
+            </Link>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="flex h-8 w-10 items-center justify-center text-base text-fg-muted hover:bg-bg-panel hover:text-fg"
+            aria-label="Close monitoring panel"
+            title="Close monitoring panel"
+            data-testid="monitoring-close"
+          >
+            ×
+          </button>
+        </div>
       </header>
 
       <div className="h-[calc(100%-2rem)] overflow-y-auto">

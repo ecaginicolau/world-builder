@@ -5,6 +5,7 @@ import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { AppHeader } from '@/components/AppHeader';
 import { MonitoringPanel } from '@/components/MonitoringPanel';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { GlobalSearchModal } from '@/components/GlobalSearchModal';
 
 interface Props {
   children: ReactNode;
@@ -37,6 +38,7 @@ export function RootLayout({ children }: Props) {
       {session.status === 'authed' ? <AppHeader /> : null}
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
       {session.status === 'authed' ? <MonitoringPanel /> : null}
+      {session.status === 'authed' ? <GlobalSearchModal /> : null}
       <ConfirmDialog />
     </div>
   );

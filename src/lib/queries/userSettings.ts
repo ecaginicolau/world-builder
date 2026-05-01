@@ -13,6 +13,7 @@ export interface UserSettings {
   upscaleTier: ModelTier;
   proposalsTier: ModelTier;
   extractTier: ModelTier;
+  summarizeTier: ModelTier;
 }
 
 interface UserSettingsRow {
@@ -22,6 +23,7 @@ interface UserSettingsRow {
   upscale_tier: ModelTier | null;
   proposals_tier: ModelTier | null;
   extract_tier: ModelTier | null;
+  summarize_tier: ModelTier | null;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +35,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   upscaleTier: 'best',
   proposalsTier: 'medium',
   extractTier: 'cheapest',
+  summarizeTier: 'cheapest',
 };
 
 function rowToSettings(row: Partial<UserSettingsRow> | null): UserSettings {
@@ -42,6 +45,7 @@ function rowToSettings(row: Partial<UserSettingsRow> | null): UserSettings {
     upscaleTier: row.upscale_tier ?? 'best',
     proposalsTier: row.proposals_tier ?? 'medium',
     extractTier: row.extract_tier ?? 'cheapest',
+    summarizeTier: row.summarize_tier ?? 'cheapest',
   };
 }
 
@@ -68,6 +72,7 @@ interface UpdatePatch {
   upscaleTier?: ModelTier;
   proposalsTier?: ModelTier;
   extractTier?: ModelTier;
+  summarizeTier?: ModelTier;
 }
 
 export function useUpdateUserSettings() {
@@ -79,7 +84,7 @@ export function useUpdateUserSettings() {
       const userId = session.session.user.id;
       const { data: current } = await supabase
         .from('user_settings')
-        .select('ui_prefs, upscale_tier, proposals_tier, extract_tier')
+        .select('ui_prefs, upscale_tier, proposals_tier, extract_tier, summarize_tier')
         .eq('user_id', userId)
         .maybeSingle();
       const prevPrefs = (current?.ui_prefs as UserPreferences | null) ?? {};
@@ -90,10 +95,11 @@ export function useUpdateUserSettings() {
       if (patch.upscaleTier !== undefined) nextRow.upscale_tier = patch.upscaleTier;
       if (patch.proposalsTier !== undefined) nextRow.proposals_tier = patch.proposalsTier;
       if (patch.extractTier !== undefined) nextRow.extract_tier = patch.extractTier;
+      if (patch.summarizeTier !== undefined) nextRow.summarize_tier = patch.summarizeTier;
       const { data, error } = await supabase
         .from('user_settings')
         .upsert(nextRow, { onConflict: 'user_id' })
-        .select('user_id, ui_prefs, upscale_tier, proposals_tier, extract_tier')
+        .select('user_id, ui_prefs, upscale_tier, proposals_tier, extract_tier, summarize_tier')
         .single();
       if (error) throw error;
       return rowToSettings(data as Partial<UserSettingsRow>);

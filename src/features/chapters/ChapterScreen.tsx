@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import {
   useChapter,
+  useChaptersByWorld,
   useDeleteChapter,
   useUpdateChapter,
 } from '@/lib/queries/chapters';
@@ -27,7 +28,11 @@ import { useAutoExtract } from '@/features/notes/useAutoExtract';
 import { useChapterLinkSource } from '@/features/notes/linkSources';
 import { VersionsPanel } from './VersionsPanel';
 import { ProposeUpdatesModal } from './ProposeUpdatesModal';
+import { SummaryPanel } from './SummaryPanel';
+import { formatPccBlock, resolvePreviousChapters } from './pcc';
 import { getUpscaler, type UpscaleEntityCard } from '@/lib/llm/upscale';
+import { getSummarizer, type SummaryLength } from '@/lib/llm/summaries';
+import type { ChapterVersion } from './types';
 import { logRun } from '@/lib/queries/runs';
 import { supabase } from '@/lib/supabase';
 import type { EntityHighlightSpec } from '@/features/notes/entityHighlightExtension';
@@ -35,7 +40,7 @@ import type { TaggedEntity } from '@/lib/llm';
 import type { EntityVersion, FieldDef } from '@/features/entities/types';
 import { useConfirm } from '@/lib/useConfirm';
 
-type RightTab = 'versions' | 'chat';
+type RightTab = 'versions' | 'summary' | 'chat';
 
 export function ChapterScreen() {
   const { worldId, chapterId } = useParams({
@@ -45,6 +50,7 @@ export function ChapterScreen() {
   const session = useSession();
   const chapterQ = useChapter(chapterId);
   const versionsQ = useChapterVersions(chapterId);
+  const worldChaptersQ = useChaptersByWorld(worldId);
   const worldQ = useWorld(worldId);
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
@@ -64,6 +70,8 @@ export function ChapterScreen() {
   const [upscaleError, setUpscaleError] = useState<string | null>(null);
   const [upscaling, setUpscaling] = useState(false);
   const [proposeOpen, setProposeOpen] = useState(false);
+  const [summarizing, setSummarizing] = useState<SummaryLength | null>(null);
+  const [summarizeError, setSummarizeError] = useState<string | null>(null);
   const editorRef = useRef<NoteEditorHandle>(null);
 
   const versions = useMemo(() => versionsQ.data ?? [], [versionsQ.data]);
@@ -180,7 +188,7 @@ export function ChapterScreen() {
     prevCountRef.current = versions.length;
   }, [versions]);
 
-  async function onUpscale(userPrompt: string) {
+  async function onUpscale(userPrompt: string, includePcc: boolean) {
     setUpscaleError(null);
     if (upscaling) return;
     if (session.status !== 'authed' || !chapterQ.data || !finalVersion) return;
@@ -209,6 +217,15 @@ export function ChapterScreen() {
         }
         cards.push({ id: e.id, name: e.name, type: t?.name ?? 'Unknown', snapshot });
       }
+      // Resolve PCC slots if requested.
+      const pccSlots = await buildPccSlots({
+        includePcc,
+        worldId,
+        currentChapterId: chapterId,
+        currentRank: chapterQ.data.chronological_rank,
+        allChapters: worldChaptersQ.data ?? [],
+        configuredSlots: worldQ.data?.previous_chapter_context ?? [],
+      });
       const upscale = getUpscaler();
       const startedAt = Date.now();
       const result = await upscale({
@@ -218,6 +235,7 @@ export function ChapterScreen() {
         currentText: htmlToPlainText(finalVersion.text),
         userPrompt,
         entityCards: cards,
+        previousChapters: pccSlots,
         tier: settingsQ.data?.upscaleTier,
       });
       const runId = await logRun({
@@ -256,6 +274,56 @@ export function ChapterScreen() {
     }
   }
 
+  async function onGenerateSummary(len: SummaryLength) {
+    setSummarizeError(null);
+    if (session.status !== 'authed' || !chapterQ.data || !finalVersion) return;
+    if (summarizing) return;
+    setSummarizing(len);
+    try {
+      const summarize = getSummarizer();
+      const startedAt = Date.now();
+      const result = await summarize({
+        worldMemory: worldQ.data?.world_memory ?? worldQ.data?.description ?? undefined,
+        worldCustomPrompt: worldQ.data?.custom_prompt ?? undefined,
+        chapterTitle: chapterQ.data.title ?? undefined,
+        chapterText: htmlToPlainText(finalVersion.text),
+        length: len,
+        tier: settingsQ.data?.summarizeTier,
+      });
+      void logRun({
+        ownerId: session.session.user.id,
+        worldId,
+        kind: 'summarize',
+        parentKind: 'chapter',
+        parentId: chapterId,
+        provider: result.provider,
+        model: result.model,
+        status: 'success',
+        durationMs: Date.now() - startedAt,
+        usage: result.tokensUsed,
+        inputSummary: { length: len },
+      });
+      const patch: Parameters<typeof updateChapter.mutateAsync>[0] = { id: chapterId };
+      if (len === 'S') patch.summaryS = result.text;
+      if (len === 'M') patch.summaryM = result.text;
+      if (len === 'L') patch.summaryL = result.text;
+      await updateChapter.mutateAsync(patch);
+    } catch (err) {
+      setSummarizeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSummarizing(null);
+    }
+  }
+
+  async function onSaveSummary(len: SummaryLength, text: string) {
+    const patch: Parameters<typeof updateChapter.mutateAsync>[0] = { id: chapterId };
+    const trimmed = text.trim() || null;
+    if (len === 'S') patch.summaryS = trimmed;
+    if (len === 'M') patch.summaryM = trimmed;
+    if (len === 'L') patch.summaryL = trimmed;
+    await updateChapter.mutateAsync(patch);
+  }
+
   async function onDelete() {
     if (!chapterQ.data) return;
     const ok = await confirm({ title: 'Delete this chapter?', danger: true });
@@ -279,11 +347,26 @@ export function ChapterScreen() {
   // For draft (v0): use updateVersionText to persist edits in place (the v0 IS the editable workspace).
   // For other origins: edits create a new manual_edit version on Save.
   const isEditingDraft = selectedVersion.origin === 'draft';
+  const isPublished = chapterQ.data.status === 'published';
+
+  async function onTogglePublished() {
+    if (!chapterQ.data) return;
+    if (!isPublished && dirty) {
+      const ok = await confirm({
+        title: 'Save unsaved edits before publishing?',
+        message: 'You have unsaved manual edits. Save them first or discard before publishing.',
+        confirmLabel: 'OK',
+      });
+      if (ok) return;
+    }
+    await updateChapter.mutateAsync({
+      id: chapterQ.data.id,
+      status: isPublished ? 'draft' : 'published',
+    });
+  }
 
   function onEditorDebouncedChange(html: string) {
-    // If the editor's plain-text content matches the version's saved text, nothing to do.
-    // (Tiptap normalizes HTML on parse, so raw-string equality is too strict; comparing
-    // plain text catches the common case of "no real edit happened yet".)
+    if (isPublished) return;
     if (selectedVersion && htmlToPlainText(html) === htmlToPlainText(selectedVersion.text)) {
       setDirty(false);
       return;
@@ -312,10 +395,33 @@ export function ChapterScreen() {
           ← Books
         </Link>
         <div className="flex items-center gap-2">
+          {isPublished ? (
+            <span
+              className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-mono uppercase text-emerald-300"
+              data-testid="published-badge"
+              title={`Published ${chapterQ.data.published_at ? new Date(chapterQ.data.published_at).toLocaleString() : ''}`}
+            >
+              Published
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void onTogglePublished()}
+            className={
+              isPublished
+                ? 'bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel'
+                : 'bg-emerald-600/80 px-3 py-1 text-sm font-medium text-emerald-50 hover:bg-emerald-600'
+            }
+            data-testid="publish-toggle"
+          >
+            {isPublished ? 'Unpublish' : 'Publish'}
+          </button>
           <button
             type="button"
             onClick={() => setProposeOpen(true)}
-            className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
+            disabled={isPublished}
+            className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel disabled:cursor-not-allowed disabled:opacity-50"
+            title={isPublished ? 'Unpublish to propose updates' : undefined}
             data-testid="propose-updates"
           >
             Propose updates
@@ -336,6 +442,7 @@ export function ChapterScreen() {
         value={currentTitle}
         onChange={(e) => onTitleChange(e.target.value)}
         placeholder="Untitled chapter"
+        readOnly={isPublished}
         className="bg-transparent px-1 py-2 text-2xl font-semibold tracking-tight focus:outline-none"
         data-testid="chapter-title"
       />
@@ -359,6 +466,7 @@ export function ChapterScreen() {
             initialContent={selectedVersion.text}
             onChange={onEditorDebouncedChange}
             entityHighlights={entityHighlights}
+            readOnly={isPublished}
           />
         </div>
 
@@ -374,6 +482,17 @@ export function ChapterScreen() {
               data-testid="tab-versions"
             >
               Versions ⚡
+            </button>
+            <button
+              type="button"
+              onClick={() => setRightTab('summary')}
+              className={
+                'flex-1 px-2 py-1 text-sm ' +
+                (rightTab === 'summary' ? 'bg-accent text-accent-fg' : 'bg-bg-subtle hover:bg-bg-panel')
+              }
+              data-testid="tab-summary"
+            >
+              Summary
             </button>
             <button
               type="button"
@@ -402,6 +521,21 @@ export function ChapterScreen() {
                   dirty={dirty && !isEditingDraft}
                   onSaveManualEdit={onSaveManualEdit}
                   saveManualPending={createVersion.isPending}
+                  pccSlotCount={worldQ.data?.previous_chapter_context.length ?? 0}
+                  readOnly={isPublished}
+                />
+              </div>
+            ) : rightTab === 'summary' ? (
+              <div className="min-w-0 flex-1">
+                <SummaryPanel
+                  chapter={chapterQ.data}
+                  finalText={finalVersion ? htmlToPlainText(finalVersion.text) : ''}
+                  generating={summarizing}
+                  generateError={summarizeError}
+                  onGenerate={onGenerateSummary}
+                  onSave={onSaveSummary}
+                  savePending={updateChapter.isPending}
+                  readOnly={isPublished}
                 />
               </div>
             ) : (
@@ -415,6 +549,19 @@ export function ChapterScreen() {
                   noteTitle={currentTitle || undefined}
                   noteContextText={selectedTextForLlm}
                   taggedEntities={taggedEntitiesForLlm}
+                  pccSlotCount={worldQ.data?.previous_chapter_context.length ?? 0}
+                  buildPccBlock={async () => {
+                    if (!chapterQ.data) return '';
+                    const slots = await buildPccSlots({
+                      includePcc: true,
+                      worldId,
+                      currentChapterId: chapterId,
+                      currentRank: chapterQ.data.chronological_rank,
+                      allChapters: worldChaptersQ.data ?? [],
+                      configuredSlots: worldQ.data?.previous_chapter_context ?? [],
+                    });
+                    return formatPccBlock(slots);
+                  }}
                 />
               </div>
             )}
@@ -439,4 +586,54 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+async function buildPccSlots(args: {
+  includePcc: boolean;
+  worldId: string;
+  currentChapterId: string;
+  currentRank: string;
+  allChapters: import('./types').Chapter[];
+  configuredSlots: import('@/features/worlds/types').ContextLevel[];
+}) {
+  const { includePcc, worldId, currentChapterId, currentRank, allChapters, configuredSlots } = args;
+  if (!includePcc || configuredSlots.length === 0) return [];
+
+  // Pick the eligible earlier chapters (mirroring resolvePreviousChapters' logic
+  // so we only fetch the final-version texts we may need).
+  const earlier = allChapters
+    .filter((c) => c.id !== currentChapterId && c.chronological_rank < currentRank)
+    .sort((a, b) =>
+      a.chronological_rank < b.chronological_rank ? 1 :
+      a.chronological_rank > b.chronological_rank ? -1 : 0,
+    )
+    .slice(0, configuredSlots.length);
+  if (earlier.length === 0) return [];
+
+  const finalIds = earlier
+    .map((c) => c.final_version_id)
+    .filter((id): id is string => !!id);
+  const versionsById = new Map<string, ChapterVersion | null>();
+  if (finalIds.length > 0) {
+    const { data, error } = await supabase
+      .from('chapter_versions')
+      .select('*')
+      .in('id', finalIds)
+      .eq('world_id', worldId);
+    if (error) throw error;
+    for (const v of (data ?? []) as ChapterVersion[]) {
+      versionsById.set(v.chapter_id, v);
+    }
+  }
+
+  // Find current chapter object to satisfy resolvePreviousChapters' API.
+  const current = allChapters.find((c) => c.id === currentChapterId);
+  if (!current) return [];
+
+  return resolvePreviousChapters({
+    current,
+    allChapters,
+    finalVersionByChapter: versionsById,
+    slots: configuredSlots,
+  });
 }

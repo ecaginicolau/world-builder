@@ -7,13 +7,17 @@ interface Props {
   finalId: string | null;
   onSelect: (id: string) => void;
   onSetFinal: (id: string) => void;
-  onUpscale: (userPrompt: string) => Promise<void>;
+  onUpscale: (userPrompt: string, includePcc: boolean) => Promise<void>;
   upscalePending: boolean;
   upscaleError?: string | null;
   /** True when the editor has unsaved manual edits — Save button shown at top. */
   dirty: boolean;
   onSaveManualEdit: () => Promise<void>;
   saveManualPending: boolean;
+  /** Number of slots in world.previous_chapter_context (0 = feature disabled). */
+  pccSlotCount: number;
+  /** Disable everything write-side (used when chapter is published). */
+  readOnly?: boolean;
 }
 
 export function VersionsPanel({
@@ -28,13 +32,16 @@ export function VersionsPanel({
   dirty,
   onSaveManualEdit,
   saveManualPending,
+  pccSlotCount,
+  readOnly = false,
 }: Props) {
   const [prompt, setPrompt] = useState('');
+  const [includePcc, setIncludePcc] = useState(true);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!prompt.trim() || upscalePending) return;
-    await onUpscale(prompt.trim());
+    if (!prompt.trim() || upscalePending || readOnly) return;
+    await onUpscale(prompt.trim(), includePcc && pccSlotCount > 0);
     setPrompt('');
   }
 
@@ -44,7 +51,7 @@ export function VersionsPanel({
         Versions ({versions.length})
       </header>
 
-      {dirty ? (
+      {dirty && !readOnly ? (
         <div className="border-b border-border bg-amber-500/10 px-3 py-2 text-xs">
           <div className="mb-1 text-amber-200">Unsaved manual edits in the editor.</div>
           <button
@@ -77,10 +84,11 @@ export function VersionsPanel({
               <input
                 type="radio"
                 checked={isFinal}
+                disabled={readOnly}
                 onChange={() => onSetFinal(v.id)}
                 onClick={(e) => e.stopPropagation()}
                 aria-label="Mark as final"
-                className="mt-1"
+                className="mt-1 disabled:opacity-50"
                 data-testid="version-final-radio"
               />
               <div className="min-w-0 flex-1">
@@ -111,13 +119,26 @@ export function VersionsPanel({
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe the upscale… e.g. ‘ajoute des descriptions du décor, c’est la nuit’"
+          placeholder={readOnly
+            ? 'Unpublish this chapter to upscale.'
+            : 'Describe the upscale… e.g. ‘ajoute des descriptions du décor, c’est la nuit’'}
           rows={3}
           cols={1}
-          disabled={upscalePending}
+          disabled={upscalePending || readOnly}
           className="w-full px-2 py-1 text-sm disabled:opacity-50"
           data-testid="upscale-prompt"
         />
+        {pccSlotCount > 0 ? (
+          <label className="flex items-center gap-2 text-xs text-fg-muted" data-testid="upscale-pcc-toggle">
+            <input
+              type="checkbox"
+              checked={includePcc}
+              onChange={(e) => setIncludePcc(e.target.checked)}
+              disabled={upscalePending || readOnly}
+            />
+            Include previous {pccSlotCount} chapter{pccSlotCount > 1 ? 's' : ''} as context
+          </label>
+        ) : null}
         {upscaleError ? (
           <p className="text-xs text-red-400" data-testid="upscale-error">
             {upscaleError}
@@ -134,7 +155,7 @@ export function VersionsPanel({
         ) : null}
         <button
           type="submit"
-          disabled={upscalePending || !prompt.trim()}
+          disabled={upscalePending || !prompt.trim() || readOnly}
           className="self-end bg-accent px-3 py-1 text-sm font-medium text-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
           data-testid="upscale-send"
         >

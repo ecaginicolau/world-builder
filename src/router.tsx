@@ -18,6 +18,9 @@ import { BookDetailScreen } from './features/chapters/BookDetailScreen';
 import { ChapterScreen } from './features/chapters/ChapterScreen';
 import { TimelineScreen } from './features/timeline/TimelineScreen';
 import { SettingsScreen } from './features/settings/SettingsScreen';
+import { ReaderScreen } from './features/reader/ReaderScreen';
+import { ReaderChapterScreen } from './features/reader/ReaderChapterScreen';
+import { RunsScreen } from './features/runs/RunsScreen';
 import { Login } from './features/auth/Login';
 import { supabase } from './lib/supabase';
 
@@ -27,7 +30,27 @@ const rootRoute = createRootRoute({
       <Outlet />
     </RootLayout>
   ),
+  notFoundComponent: NotFound,
 });
+
+function NotFound() {
+  return (
+    <main className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-4 px-6 py-10 text-center">
+      <h1 className="text-2xl font-semibold">Page not found</h1>
+      <p className="text-sm text-fg-muted">
+        This URL doesn't match any route. If you just navigated from a tab and the
+        dev server is running, try a hard refresh (Ctrl+Shift+R) — Vite HMR
+        sometimes misses new routes.
+      </p>
+      <a
+        href="/worlds"
+        className="bg-accent px-3 py-1 text-sm font-medium text-accent-fg"
+      >
+        Back to your worlds
+      </a>
+    </main>
+  );
+}
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -125,6 +148,27 @@ const settingsRoute = createRoute({
   component: SettingsScreen,
 });
 
+const readerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/read',
+  beforeLoad: requireAuth,
+  component: ReaderScreen,
+});
+
+const readerChapterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/read/$chapterId',
+  beforeLoad: requireAuth,
+  component: ReaderChapterScreen,
+});
+
+const runsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/runs',
+  beforeLoad: requireAuth,
+  component: RunsScreen,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -139,6 +183,9 @@ const routeTree = rootRoute.addChildren([
   chapterRoute,
   timelineRoute,
   settingsRoute,
+  readerRoute,
+  readerChapterRoute,
+  runsRoute,
 ]);
 
 export const router = createRouter({ routeTree });

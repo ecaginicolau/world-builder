@@ -141,13 +141,27 @@ export function useUpdateChapter() {
       title?: string | null;
       chronologicalRank?: string;
       finalVersionId?: string;
+      summaryS?: string | null;
+      summaryM?: string | null;
+      summaryL?: string | null;
+      status?: 'draft' | 'published';
     }
   >({
-    mutationFn: async ({ id, title, chronologicalRank, finalVersionId }) => {
+    mutationFn: async ({
+      id, title, chronologicalRank, finalVersionId,
+      summaryS, summaryM, summaryL, status,
+    }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title;
       if (chronologicalRank !== undefined) patch.chronological_rank = chronologicalRank;
       if (finalVersionId !== undefined) patch.final_version_id = finalVersionId;
+      if (summaryS !== undefined) patch.summary_s = summaryS;
+      if (summaryM !== undefined) patch.summary_m = summaryM;
+      if (summaryL !== undefined) patch.summary_l = summaryL;
+      if (status !== undefined) {
+        patch.status = status;
+        patch.published_at = status === 'published' ? new Date().toISOString() : null;
+      }
       const { data, error } = await supabase
         .from('chapters')
         .update(patch)

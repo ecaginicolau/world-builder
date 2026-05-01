@@ -32,6 +32,8 @@ export interface ChatRequest {
   noteTitle?: string;
   noteContext?: string;
   taggedEntities?: TaggedEntity[];
+  /** Pre-formatted PCC block (markdown). Empty string skips the block. */
+  previousChaptersBlock?: string;
   history: ChatMessage[];
   userMessage: string;
   /** Default 'medium'. */
