@@ -2,6 +2,26 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 3.y livré et validé live)
+
+**Slice 3.y livré** — couleurs par entity type + highlight des entities dans l'éditeur Tiptap. Validé live Chrome.
+
+### Validation live (2026-05-01 PM)
+- EntitiesScreen : color picker (input type="color") à côté de chaque type → mutation immédiate via `useUpdateEntityType`. Lieux passés en orange, Personnages en cyan automatiquement (couleurs auto-générées par hash du nom tant que l'user n'override pas).
+- Sub-headers de la liste entities (PERSONNAGES / LIEUX) coloré assortis.
+- Linked entities chips dans NoteScreen : `bg = color@13%`, `border = color@40%`, lisible sur fond noir.
+- **Highlight in-editor** : Tiptap extension `EntityHighlight` (ProseMirror Decoration) parse le doc et match `entity.name` + `entity.aliases` (case-insensitive, word-boundary regex). "Maitre Sorn", "Iria", "Vieille Forteresse", "Edran Voss" tous soulignés dans la note avec leur couleur, refresh quand la liste d'entities change.
+
+### Décisions implémentation
+- Couleurs stockées en hex (`entity_types.color`) ou null. Si null → fallback déterministe par hash(name) sur palette de 10 couleurs (`src/lib/entityColors.ts`).
+- Helpers `chipBgFromHex` / `chipBorderFromHex` pour la transparence (suffixe alpha hex).
+- Tiptap extension utilise `Decoration.inline` avec style inline (background + border-bottom), pas de mark stocké → le HTML stored en DB n'est PAS pollué par les highlights.
+- Refresh : `setEntityHighlights(editor, entities)` via `tr.setMeta(pluginKey, { entities })` → `useEffect` sur la liste d'entities dans NoteEditor.
+- Match : regex word-boundary + Unicode flag (`\b...\b/giu`). Aliases inclus dès la v1 (déjà supporté par le schema entity).
+- Anti-pattern respecté : pas de NLP, pas de partial match, pas de pronoms (notés dans `docs/future-ideas.md` pour Slice 3.y.next).
+
+---
+
 ## Status (2026-05-01 PM, Slice 3.x livré et validé live)
 
 **Slice 3.x livré** — nav (Option A : header sticky), Settings écran, custom prompt per-world, monitoring footer, cache fix auto-extract, debounce configurable. Validé en pilote Chrome avec OpenAI live.

@@ -6,7 +6,9 @@ import {
   useCreateEntityType,
   useDeleteEntityType,
   useEntityTypes,
+  useUpdateEntityType,
 } from '@/lib/queries/entityTypes';
+import { chipBgFromHex, chipBorderFromHex, resolveColor } from '@/lib/entityColors';
 import {
   useCreateEntity,
   useDeleteEntity,
@@ -22,6 +24,7 @@ export function EntitiesScreen() {
   const typesQ = useEntityTypes(worldId);
   const entitiesQ = useEntities(worldId);
   const createType = useCreateEntityType();
+  const updateType = useUpdateEntityType();
   const deleteType = useDeleteEntityType();
   const createEntity = useCreateEntity();
   const updateEntity = useUpdateEntity();
@@ -142,24 +145,42 @@ export function EntitiesScreen() {
           <p className="text-sm text-fg-muted">Loading…</p>
         ) : typesQ.data && typesQ.data.length > 0 ? (
           <ul className="flex flex-wrap gap-2" data-testid="types-list">
-            {typesQ.data.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center gap-2 rounded-md border border-border bg-bg-panel px-3 py-1 text-sm"
-                data-testid="type-chip"
-              >
-                <span>{t.name}</span>
-                <button
-                  type="button"
-                  onClick={() => onDeleteType(t)}
-                  className="text-xs text-fg-muted hover:text-red-400"
-                  aria-label={`Delete type ${t.name}`}
-                  data-testid="type-delete"
+            {typesQ.data.map((t) => {
+              const color = resolveColor(t.color, t.name);
+              return (
+                <li
+                  key={t.id}
+                  className="flex items-center gap-2 rounded-md border px-3 py-1 text-sm"
+                  style={{
+                    backgroundColor: chipBgFromHex(color),
+                    borderColor: chipBorderFromHex(color),
+                  }}
+                  data-testid="type-chip"
                 >
-                  ×
-                </button>
-              </li>
-            ))}
+                  <input
+                    type="color"
+                    value={color}
+                    onChange={(e) =>
+                      updateType.mutate({ id: t.id, worldId, color: e.target.value })
+                    }
+                    className="h-4 w-4 cursor-pointer border-0 bg-transparent p-0"
+                    title={`Color for ${t.name}`}
+                    aria-label={`Color for ${t.name}`}
+                    data-testid="type-color"
+                  />
+                  <span>{t.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteType(t)}
+                    className="text-xs text-fg-muted hover:text-red-400"
+                    aria-label={`Delete type ${t.name}`}
+                    data-testid="type-delete"
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         ) : typesQ.data ? (
           <p className="text-sm text-fg-muted" data-testid="types-empty">
@@ -225,9 +246,13 @@ export function EntitiesScreen() {
           <div className="space-y-4" data-testid="entities-list">
             {Array.from(entitiesByType.entries()).map(([typeId, items]) => {
               const type = typesById.get(typeId);
+              const color = type ? resolveColor(type.color, type.name) : null;
               return (
                 <div key={typeId}>
-                  <div className="mb-1 text-xs uppercase tracking-wide text-fg-muted">
+                  <div
+                    className="mb-1 text-xs uppercase tracking-wide"
+                    style={color ? { color } : undefined}
+                  >
                     {type?.name ?? '(unknown type)'}
                   </div>
                   <ul className="space-y-1">

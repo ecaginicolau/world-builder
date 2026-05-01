@@ -24,11 +24,46 @@ export function useEntityTypes(worldId: string) {
 
 export function useCreateEntityType() {
   const qc = useQueryClient();
-  return useMutation<EntityType, Error, { worldId: string; ownerId: string; name: string }>({
-    mutationFn: async ({ worldId, ownerId, name }) => {
+  return useMutation<
+    EntityType,
+    Error,
+    { worldId: string; ownerId: string; name: string; color?: string | null }
+  >({
+    mutationFn: async ({ worldId, ownerId, name, color }) => {
       const { data, error } = await supabase
         .from('entity_types')
-        .insert({ world_id: worldId, owner_id: ownerId, name: name.trim() })
+        .insert({
+          world_id: worldId,
+          owner_id: ownerId,
+          name: name.trim(),
+          color: color ?? null,
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
+      return data as EntityType;
+    },
+    onSuccess: (et) => {
+      void qc.invalidateQueries({ queryKey: entityTypesKeys.byWorld(et.world_id) });
+    },
+  });
+}
+
+export function useUpdateEntityType() {
+  const qc = useQueryClient();
+  return useMutation<
+    EntityType,
+    Error,
+    { id: string; worldId: string; name?: string; color?: string | null }
+  >({
+    mutationFn: async ({ id, name, color }) => {
+      const patch: Record<string, unknown> = {};
+      if (name !== undefined) patch.name = name;
+      if (color !== undefined) patch.color = color;
+      const { data, error } = await supabase
+        .from('entity_types')
+        .update(patch)
+        .eq('id', id)
         .select('*')
         .single();
       if (error) throw error;

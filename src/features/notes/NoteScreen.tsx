@@ -8,11 +8,13 @@ import { useNoteEntities } from '@/lib/queries/noteEntities';
 import { useUiStore } from '@/lib/uiStore';
 import { NoteEditor } from './NoteEditor';
 import { htmlToPlainText } from '@/lib/html';
+import { resolveColor } from '@/lib/entityColors';
 import { ChatPanel } from './ChatPanel';
 import { NoteEntitiesPanel } from './NoteEntitiesPanel';
 import { DetectedEntitiesPanel } from './DetectedEntitiesPanel';
 import { useAutoExtract } from './useAutoExtract';
 import { PromoteToChapterModal } from './PromoteToChapterModal';
+import type { EntityHighlightSpec } from './entityHighlightExtension';
 import type { TaggedEntity } from '@/lib/llm';
 
 export function NoteScreen() {
@@ -42,6 +44,20 @@ export function NoteScreen() {
     worldId,
     plainText: noteTextForLlm,
   });
+
+  const entityHighlights = useMemo<EntityHighlightSpec[]>(() => {
+    const types = typesQ.data ?? [];
+    const typesById = new Map(types.map((t) => [t.id, t]));
+    return (entitiesQ.data ?? []).map((e) => {
+      const t = typesById.get(e.entity_type_id);
+      const color = t ? resolveColor(t.color, t.name) : '#a1a1aa';
+      return {
+        name: e.name,
+        aliases: e.aliases ?? [],
+        color,
+      };
+    });
+  }, [entitiesQ.data, typesQ.data]);
 
   const taggedEntitiesForLlm = useMemo<TaggedEntity[]>(() => {
     const links = noteEntitiesQ.data ?? [];
@@ -138,6 +154,7 @@ export function NoteScreen() {
           <NoteEditor
             initialContent={noteQ.data.content}
             onChange={onContentChange}
+            entityHighlights={entityHighlights}
           />
           <NoteEntitiesPanel noteId={noteId} worldId={worldId} />
           <DetectedEntitiesPanel

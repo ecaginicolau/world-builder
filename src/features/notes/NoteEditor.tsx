@@ -2,15 +2,27 @@ import { useEffect, useRef } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
+import {
+  EntityHighlight,
+  setEntityHighlights,
+  type EntityHighlightSpec,
+} from './entityHighlightExtension';
 
 interface Props {
   initialContent: string;
   onChange: (html: string) => void;
   /** Debounce in ms before onChange fires. */
   debounceMs?: number;
+  /** Entities to highlight in the editor. Updated reactively. */
+  entityHighlights?: EntityHighlightSpec[];
 }
 
-export function NoteEditor({ initialContent, onChange, debounceMs = 400 }: Props) {
+export function NoteEditor({
+  initialContent,
+  onChange,
+  debounceMs = 400,
+  entityHighlights,
+}: Props) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -19,6 +31,7 @@ export function NoteEditor({ initialContent, onChange, debounceMs = 400 }: Props
     extensions: [
       StarterKit,
       Placeholder.configure({ placeholder: 'Start writing…' }),
+      EntityHighlight.configure({ entities: entityHighlights ?? [] }),
     ],
     content: initialContent || '',
     editorProps: {
@@ -37,6 +50,12 @@ export function NoteEditor({ initialContent, onChange, debounceMs = 400 }: Props
     },
   });
 
+  // Refresh decorations whenever the entities list changes.
+  useEffect(() => {
+    if (!editor) return;
+    setEntityHighlights(editor, entityHighlights ?? []);
+  }, [editor, entityHighlights]);
+
   useEffect(() => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -52,4 +71,3 @@ export function NoteEditor({ initialContent, onChange, debounceMs = 400 }: Props
     </div>
   );
 }
-

@@ -7,6 +7,7 @@ import {
   useUntagEntity,
 } from '@/lib/queries/noteEntities';
 import { useSession } from '@/features/auth/session';
+import { chipBgFromHex, chipBorderFromHex, resolveColor } from '@/lib/entityColors';
 
 interface Props {
   noteId: string;
@@ -87,10 +88,19 @@ export function NoteEntitiesPanel({ noteId, worldId }: Props) {
             const t = typesById.get(e.entity_type_id);
             const link = linkByEntityId.get(e.id);
             const isAuto = link?.pinned_manually === false;
+            const color = t ? resolveColor(t.color, t.name) : null;
             return (
               <li
                 key={e.id}
-                className="flex items-center gap-2 rounded-full bg-bg-subtle px-2 py-1 text-xs"
+                className="flex items-center gap-2 rounded-full border px-2 py-1 text-xs"
+                style={
+                  color
+                    ? {
+                        backgroundColor: chipBgFromHex(color),
+                        borderColor: chipBorderFromHex(color),
+                      }
+                    : undefined
+                }
                 data-testid="tagged-entity"
                 data-auto={isAuto ? 'true' : 'false'}
               >
