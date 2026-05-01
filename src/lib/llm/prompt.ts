@@ -2,16 +2,25 @@ import type { ChatMessage, ChatRequest } from './types';
 
 /**
  * Build the OpenAI-style messages array for the chat completion.
- * Slice 1: system = world memory + note context; then history; then user message.
+ * Slice 1 prompt = system (world memory + note title + note body) ; history ; user message.
  */
 export function buildMessages(req: ChatRequest): ChatMessage[] {
   const systemParts: string[] = [];
+
   if (req.worldMemory && req.worldMemory.trim()) {
     systemParts.push(`# World memory\n${req.worldMemory.trim()}`);
   }
-  if (req.noteContext && req.noteContext.trim()) {
-    systemParts.push(`# Current note\n${req.noteContext.trim()}`);
+
+  const hasTitle = !!req.noteTitle && req.noteTitle.trim().length > 0;
+  const hasBody = !!req.noteContext && req.noteContext.trim().length > 0;
+  if (hasTitle || hasBody) {
+    const lines: string[] = ['# Note the user is currently editing'];
+    lines.push(`Title: ${hasTitle ? req.noteTitle!.trim() : '(untitled)'}`);
+    lines.push('Body:');
+    lines.push(hasBody ? req.noteContext!.trim() : '(empty)');
+    systemParts.push(lines.join('\n'));
   }
+
   const messages: ChatMessage[] = [];
   if (systemParts.length > 0) {
     messages.push({

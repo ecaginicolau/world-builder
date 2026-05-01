@@ -2,9 +2,25 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
-## Status (2026-05-01, fin de session autonome Slice 1 — Phase A)
+## Status (2026-05-01, Slice 1 livré end-to-end + polish autonome)
 
-**Slice 1 Phase A code-complete et validé localement.** Reste Phase B (5 min user) avant que le slice soit pleinement utilisable.
+**Slice 1 livré, Phase A + Phase B + polish autonome validés en pilote Chrome live avec OpenAI.** Le concept central (note + chat IA contextualisé sur world memory) marche — première étape du produit en place.
+
+### Validation live (2026-05-01 PM)
+- Création note "Antagoniste principal" + body + envoi message → réponse OpenAI gpt-5.4-mini.
+- LLM a correctement repris : titre exact, body exact, world memory exacte, et a respecté le tone (suggestions de noms "Maître Sorn" / "Edran Voss" cohérents avec "low-magic dark fantasy / bleak, ironic / betrayal, slow corruption").
+- Multi-tour conversation (history préservé) ✓
+- Delete note ✓
+- Audit log `runs` POST 201 sur chaque chat ✓
+- World memory persistée et injectée à chaque chat ✓
+
+### Polish post-Phase B (autonome, commits TBD)
+- **Bug fix prompt** : le LLM confondait le header markdown `# Current note` avec le titre. Maintenant `noteTitle` passé explicitement, prompt clarifié (`Title: X / Body: Y / (untitled) / (empty)`).
+- **Tiers + reasoning** : `cheapest=gpt-5.4-nano`, `medium=gpt-5.4-mini` (default), `best=gpt-5.4`. Reasoning effort `none → xhigh` mappé à `reasoning_effort` côté OpenAI. UI `⚙` dans ChatPanel pour basculer.
+- **`runs` audit log** : helper `logRun()` (fire-and-forget), appelé à chaque chat (success + error). Stocke `kind=chat`, model, provider, duration_ms, usage, input_summary{tier,reasoning,noteId,historyLength}.
+- **`world_memory` UI** : section repliable au top de WorldDetailScreen, edit/save/cancel. Avant ce polish, on hackait avec `worlds.description`.
+- **`World` type** étendu avec `world_memory` + helper `useUpdateWorld()`.
+- **Note list preview** : utilise `htmlToPlainText` pour afficher 80 chars du body sans HTML brut.
 
 ### Ce qui est fait (Phase A)
 - Migration `supabase/migrations/V002__slice_1_notes.sql` — `notes`, `chat_threads`, `chat_messages`, `runs` + RLS owner-scoped + indexes.
@@ -28,23 +44,29 @@ Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil 
 - **Pas de mock auth dans Playwright** : E2E couvre "rendu login + redirects". Le full chat flow est pilotable une fois V002 appliquée et un user connecté ; pas mocké pour ne pas dupliquer une couche de mock fragile.
 - **Mobile breakpoint pas piloté** : `mcp__Claude_in_Chrome__resize_window` n'a pas réduit le viewport interne sur cette instance (vérifié `window.innerWidth` resté à 1920). Les classes responsive sont posées côté code (`sm:hidden` / `hidden sm:inline-flex` / `md:grid-cols-[2fr_1fr]`). À piloter manuellement après B.1.
 
-### Phase B — actions user (5 min total)
+### Phase B — done (par le user le 2026-05-01)
 
-| # | Action | Où |
-|---|---|---|
-| B.1 | Appliquer `supabase/migrations/V002__slice_1_notes.sql` | Supabase dashboard → SQL editor (project `erlkawphavrznusabzok`) |
-| B.2 | Ajouter `OPENAI_API_KEY` aux secrets | Dashboard → Project Settings → Edge Functions → Secrets |
-| B.3 | Déployer Edge Function `llm-call` | Soit dashboard Edge Functions UI (uploader `supabase/functions/llm-call/index.ts`), soit CLI : `supabase functions deploy llm-call` (nécessite Docker + Supabase CLI installés) |
-| B.4 | Switch front sur OpenAI | Ajouter `VITE_LLM_PROVIDER=openai` à `.env.local` (et plus tard env Vercel) |
-| B.5 | Smoke test live | Pilote Chrome : créer une note, taper du texte, ouvrir le chat, envoyer un message, vérifier réponse. Tester aussi mobile breakpoint (DevTools responsive). |
-
-### Bloquant constaté en pilote
-
-Aucun — le code est sain, juste la table `notes` n'existe pas en DB tant que B.1 pas fait. Le UI affiche l'erreur PostgREST telle quelle.
+| # | Action | Où | Notes |
+|---|---|---|---|
+| B.1 | ✅ V002 appliquée | Dashboard SQL editor | |
+| B.2 | ✅ `OPENAI_API_KEY` secret | Dashboard | |
+| B.3 | ✅ Edge Function `llm-call` déployée | Dashboard upload | **Important** : "Verify JWT" doit être OFF sinon le preflight CORS OPTIONS est rejeté en 401 et le browser bloque tout. |
+| B.4 | ✅ `VITE_LLM_PROVIDER=openai` | `.env.local` | |
+| B.5 | ✅ Smoke test live | Pilote Chrome | Mobile breakpoint pas piloté (resize_window inopérant sur cette instance Chrome). |
 
 ### Note sur `networkMode: 'always'`
 
 J'ai dû ajouter `networkMode: 'always'` au `QueryClient` parce que le navigator.onLine de Chrome déclarait l'app offline en présence du DevTools/extensions, ce qui mettait toutes les requêtes TanStack Query en `fetchStatus: 'paused'` indéfiniment. Avec `'always'`, les requêtes partent indépendamment du flag offline. Si on veut un vrai mode offline plus tard (cache + replay), il faudra reprendre cette config.
+
+### Quota OpenAI
+
+Validé après ajout de crédit ($5 minimum). gpt-5.4-mini = ~$0.15/M tokens d'input → des milliers de messages.
+
+### Décisions à reconfirmer post-Slice 1
+
+- **Stockage `notes.content`** : encore HTML brut. `htmlToPlainText()` couvre les usages actuels (preview liste + contexte LLM). À convertir en markdown si besoin d'export ou si on veut un Tiptap riche en chapter editor (Slice 4).
+- **`world_memory` est passé tel quel au prompt** (pas de troncage). Si la memory devient longue, prévoir un budget de tokens.
+- **Audit log fire-and-forget** : on swallow les erreurs (console.warn). C'est OK tant que `runs` n'est pas critique pour l'UX. Si on bâtit un dashboard de coûts dessus en Slice 8, ré-évaluer.
 
 ---
 
@@ -99,7 +121,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 | Slice | Ce qui marche | Valeur validée |
 |---|---|---|
 | **0** ✅ | Login Supabase (magic link), créer/lister des "worlds" vides, déployé en PWA | La stack tient debout |
-| **1** ⭐ | **Quick capture (mobile-first) + Chat IA sur note** (markdown). Pas d'entités, pas de chapitres. Phase A code-complete 2026-05-01 ; Phase B en attente du user. | **Le concept central est-il utile ?** |
+| **1** ✅⭐ | **Quick capture + Chat IA sur note** + world memory + tier/reasoning UI + audit log runs. Validé live OpenAI 2026-05-01. | **Concept central validé ✓** |
 | **2** | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat) | Apport du contexte structuré |
 | **3** | **Auto-extraction d'entités** dans note/chat + promotion note → entité | Cristallisation depuis brainstorm |
 | **4** | **Hiérarchie books/parts/chapters** + promotion note → chapitre (avec Tiptap riche) | Structure narrative |

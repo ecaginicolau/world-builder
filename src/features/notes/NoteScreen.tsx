@@ -105,7 +105,8 @@ export function NoteScreen() {
             <ChatPanel
               noteId={noteId}
               worldId={worldId}
-              worldMemory={worldQ.data?.description ?? undefined}
+              worldMemory={worldQ.data?.world_memory ?? worldQ.data?.description ?? undefined}
+              noteTitle={currentTitle || undefined}
               noteContextText={noteTextForLlm}
             />
           </div>

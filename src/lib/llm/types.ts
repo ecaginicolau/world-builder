@@ -22,6 +22,7 @@ export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface ChatRequest {
   worldMemory?: string;
+  noteTitle?: string;
   noteContext?: string;
   history: ChatMessage[];
   userMessage: string;

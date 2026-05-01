@@ -5,18 +5,39 @@ import {
   useMessages,
   useThreads,
 } from '@/lib/queries/threads';
+import { logRun } from '@/lib/queries/runs';
 import { useSession } from '@/features/auth/session';
-import { getLlm, type ChatMessage as LlmChatMessage } from '@/lib/llm';
+import {
+  getLlm,
+  type ChatMessage as LlmChatMessage,
+  type ModelTier,
+  type ReasoningEffort,
+} from '@/lib/llm';
 import type { ChatThread } from './types';
 
 interface Props {
   noteId: string;
   worldId: string;
   worldMemory?: string;
+  noteTitle?: string;
   noteContextText: string;
 }
 
-export function ChatPanel({ noteId, worldId, worldMemory, noteContextText }: Props) {
+const TIERS: { value: ModelTier; label: string }[] = [
+  { value: 'cheapest', label: 'Fast' },
+  { value: 'medium', label: 'Balanced' },
+  { value: 'best', label: 'Best' },
+];
+
+const EFFORTS: ReasoningEffort[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+
+export function ChatPanel({
+  noteId,
+  worldId,
+  worldMemory,
+  noteTitle,
+  noteContextText,
+}: Props) {
   const session = useSession();
   const threadsQ = useThreads(noteId);
   const createThread = useCreateThread();
@@ -25,6 +46,9 @@ export function ChatPanel({ noteId, worldId, worldMemory, noteContextText }: Pro
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tier, setTier] = useState<ModelTier>('medium');
+  const [reasoning, setReasoning] = useState<ReasoningEffort>('none');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,13 +95,16 @@ export function ChatPanel({ noteId, worldId, worldMemory, noteContextText }: Pro
     setSending(true);
     const userText = input.trim();
     setInput('');
+    const ownerId = session.session.user.id;
+    const startedAt = performance.now();
+    let activeThread: ChatThread | null = null;
     try {
-      const thread = await ensureThread();
-      if (!thread) return;
+      activeThread = await ensureThread();
+      if (!activeThread) return;
 
       await insertMessage.mutateAsync({
-        threadId: thread.id,
-        ownerId: session.session.user.id,
+        threadId: activeThread.id,
+        ownerId,
         role: 'user',
         content: userText,
       });
@@ -90,25 +117,53 @@ export function ChatPanel({ noteId, worldId, worldMemory, noteContextText }: Pro
       const llm = getLlm();
       const resp = await llm.chat({
         worldMemory,
+        noteTitle,
         noteContext: noteContextText,
         history,
         userMessage: userText,
-        tier: 'medium',
-        reasoning: 'none',
+        tier,
+        reasoning,
       });
 
       await insertMessage.mutateAsync({
-        threadId: thread.id,
-        ownerId: session.session.user.id,
+        threadId: activeThread.id,
+        ownerId,
         role: 'assistant',
         content: resp.content,
         model: resp.model,
         provider: resp.provider,
         tokensUsed: resp.tokensUsed ?? null,
       });
+
+      void logRun({
+        worldId,
+        ownerId,
+        kind: 'chat',
+        parentKind: 'thread',
+        parentId: activeThread.id,
+        model: resp.model,
+        provider: resp.provider,
+        status: 'success',
+        durationMs: Math.round(performance.now() - startedAt),
+        usage: resp.tokensUsed ?? null,
+        inputSummary: { tier, reasoning, noteId, historyLength: history.length },
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
+      void logRun({
+        worldId,
+        ownerId,
+        kind: 'chat',
+        parentKind: activeThread ? 'thread' : 'note',
+        parentId: activeThread?.id ?? noteId,
+        model: 'unknown',
+        provider: getLlm().name,
+        status: 'error',
+        durationMs: Math.round(performance.now() - startedAt),
+        errorMessage: msg.slice(0, 1000),
+        inputSummary: { tier, reasoning, noteId },
+      });
     } finally {
       setSending(false);
     }
@@ -126,6 +181,15 @@ export function ChatPanel({ noteId, worldId, worldMemory, noteContextText }: Pro
             : ''}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((v) => !v)}
+            className="bg-bg-subtle px-2 py-1 text-xs hover:bg-bg"
+            data-testid="chat-settings-toggle"
+            title={`Tier: ${tier} · reasoning: ${reasoning}`}
+          >
+            ⚙
+          </button>
           {threadsQ.data && threadsQ.data.length > 0 ? (
             <select
               value={activeThreadId ?? ''}
@@ -150,6 +214,47 @@ export function ChatPanel({ noteId, worldId, worldMemory, noteContextText }: Pro
           </button>
         </div>
       </header>
+
+      {settingsOpen ? (
+        <div className="space-y-2 border-b border-border px-3 py-2 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="w-20 text-fg-muted">Quality</span>
+            <div className="flex gap-1" data-testid="chat-tier-group">
+              {TIERS.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setTier(t.value)}
+                  className={
+                    'px-2 py-1 text-xs ' +
+                    (tier === t.value
+                      ? 'bg-accent text-accent-fg'
+                      : 'bg-bg-subtle hover:bg-bg')
+                  }
+                  data-testid={`chat-tier-${t.value}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-20 text-fg-muted">Reasoning</span>
+            <select
+              value={reasoning}
+              onChange={(e) => setReasoning(e.target.value as ReasoningEffort)}
+              className="bg-bg-subtle px-2 py-1 text-xs"
+              data-testid="chat-reasoning"
+            >
+              {EFFORTS.map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      ) : null}
 
       <div
         ref={scrollRef}
