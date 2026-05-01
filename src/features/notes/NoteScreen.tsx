@@ -85,6 +85,12 @@ export function NoteScreen() {
     updateNote.mutate({ id: noteId, content: html });
   }
 
+  function onToggleArchive() {
+    if (!noteQ.data) return;
+    const next = noteQ.data.status === 'archived' ? 'open' : 'archived';
+    updateNote.mutate({ id: noteId, status: next });
+  }
+
   async function onDelete() {
     const confirmed = window.confirm('Delete this note?');
     if (!confirmed) return;
@@ -119,6 +125,15 @@ export function NoteScreen() {
             data-testid="promote-to-chapter"
           >
             Promote → chapter
+          </button>
+          <button
+            type="button"
+            onClick={onToggleArchive}
+            className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
+            data-testid="toggle-archive"
+            title={noteQ.data.status === 'archived' ? 'Unarchive this note' : 'Archive this note'}
+          >
+            {noteQ.data.status === 'archived' ? 'Unarchive' : 'Archive'}
           </button>
           <button
             type="button"

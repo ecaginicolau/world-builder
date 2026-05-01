@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useBooks } from '@/lib/queries/books';
 import { usePartsByWorld } from '@/lib/queries/parts';
 import { useCreateChapter } from '@/lib/queries/chapters';
+import { useUpdateNote } from '@/lib/queries/notes';
 import { logNotePromotion } from '@/lib/queries/notePromotions';
 import { useSession } from '@/features/auth/session';
 import type { Part } from '@/features/chapters/types';
@@ -28,6 +29,7 @@ export function PromoteToChapterModal({
   const booksQ = useBooks(worldId);
   const partsQ = usePartsByWorld(worldId);
   const createChapter = useCreateChapter();
+  const updateNote = useUpdateNote();
   const navigate = useNavigate();
 
   const partsByBook = useMemo(() => {
@@ -42,6 +44,7 @@ export function PromoteToChapterModal({
 
   const [partId, setPartId] = useState<string>('');
   const [title, setTitle] = useState<string>(noteTitle ?? '');
+  const [archiveAfter, setArchiveAfter] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -77,6 +80,9 @@ export function PromoteToChapterModal({
         targetKind: 'chapter',
         targetId: chapter.id,
       });
+      if (archiveAfter) {
+        updateNote.mutate({ id: noteId, status: 'archived' });
+      }
       onClose();
       void navigate({
         to: '/worlds/$worldId/chapters/$chapterId',
@@ -138,6 +144,16 @@ export function PromoteToChapterModal({
                 className="w-full px-3 py-2 text-sm"
                 data-testid="promote-title"
               />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-fg-muted">
+              <input
+                type="checkbox"
+                checked={archiveAfter}
+                onChange={(e) => setArchiveAfter(e.target.checked)}
+                className="h-3 w-3"
+                data-testid="promote-archive-after"
+              />
+              Archive this note after promoting
             </label>
             {error ? (
               <p className="text-sm text-red-400" data-testid="promote-error">

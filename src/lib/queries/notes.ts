@@ -7,16 +7,18 @@ export const notesKeys = {
   detail: (noteId: string) => ['notes', 'detail', noteId] as const,
 };
 
-export function useNotes(worldId: string) {
+export function useNotes(worldId: string, opts?: { includeArchived?: boolean }) {
+  const includeArchived = opts?.includeArchived ?? false;
   return useQuery<Note[], Error>({
-    queryKey: notesKeys.byWorld(worldId),
+    queryKey: [...notesKeys.byWorld(worldId), { includeArchived }] as const,
     queryFn: async () => {
-      const { data, error, status } = await supabase
+      let q = supabase
         .from('notes')
         .select('*')
         .eq('world_id', worldId)
-        .eq('status', 'open')
         .order('updated_at', { ascending: false });
+      if (!includeArchived) q = q.eq('status', 'open');
+      const { data, error, status } = await q;
       if (error) {
         const e = new Error(`${error.message} (status ${status})`);
         (e as Error & { code?: string }).code = error.code;
@@ -76,12 +78,13 @@ export function useUpdateNote() {
   return useMutation<
     Note,
     Error,
-    { id: string; title?: string | null; content?: string }
+    { id: string; title?: string | null; content?: string; status?: 'open' | 'archived' }
   >({
-    mutationFn: async ({ id, title, content }) => {
+    mutationFn: async ({ id, title, content, status }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title;
       if (content !== undefined) patch.content = content;
+      if (status !== undefined) patch.status = status;
       const { data, error } = await supabase
         .from('notes')
         .update(patch)

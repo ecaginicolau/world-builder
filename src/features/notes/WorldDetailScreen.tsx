@@ -13,13 +13,15 @@ export function WorldDetailScreen() {
   const session = useSession();
   const worldQ = useWorld(worldId);
   const updateWorld = useUpdateWorld();
-  const notesQ = useNotes(worldId);
   const createNote = useCreateNote();
   const setLastWorldId = useUiStore((s) => s.setLastWorldId);
   const setQcOpen = useUiStore((s) => s.setQuickCaptureOpen);
 
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+
+  const notesQ = useNotes(worldId, { includeArchived: showArchived });
 
   useEffect(() => {
     setLastWorldId(worldId);
@@ -128,6 +130,22 @@ export function WorldDetailScreen() {
         </p>
       ) : null}
 
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-muted">
+          Notes
+        </h2>
+        <label className="flex items-center gap-2 text-xs text-fg-muted">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+            className="h-3 w-3"
+            data-testid="show-archived-toggle"
+          />
+          Show archived
+        </label>
+      </div>
+
       {notesQ.isLoading ? (
         <p className="text-fg-muted">Loading…</p>
       ) : notesQ.data && notesQ.data.length === 0 ? (
@@ -136,27 +154,41 @@ export function WorldDetailScreen() {
         </p>
       ) : notesQ.data ? (
         <ul className="space-y-2" data-testid="notes-list">
-          {notesQ.data.map((n) => (
-            <li
-              key={n.id}
-              className="rounded-md border border-border bg-bg-panel"
-              data-testid="note-item"
-            >
-              <Link
-                to="/worlds/$worldId/notes/$noteId"
-                params={{ worldId, noteId: n.id }}
-                className="block px-4 py-3 hover:bg-bg-subtle"
-                data-testid="note-link"
+          {notesQ.data.map((n) => {
+            const isArchived = n.status === 'archived';
+            return (
+              <li
+                key={n.id}
+                className={
+                  'rounded-md border border-border bg-bg-panel ' +
+                  (isArchived ? 'opacity-60' : '')
+                }
+                data-testid="note-item"
+                data-archived={isArchived ? 'true' : 'false'}
               >
-                <div className="font-medium">
-                  {n.title?.trim() || preview(n.content) || 'Untitled note'}
-                </div>
-                <div className="text-xs text-fg-muted">
-                  Updated {formatDate(n.updated_at)}
-                </div>
-              </Link>
-            </li>
-          ))}
+                <Link
+                  to="/worlds/$worldId/notes/$noteId"
+                  params={{ worldId, noteId: n.id }}
+                  className="block px-4 py-3 hover:bg-bg-subtle"
+                  data-testid="note-link"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">
+                      {n.title?.trim() || preview(n.content) || 'Untitled note'}
+                    </span>
+                    {isArchived ? (
+                      <span className="rounded bg-bg-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-fg-muted">
+                        archived
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="text-xs text-fg-muted">
+                    Updated {formatDate(n.updated_at)}
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
 

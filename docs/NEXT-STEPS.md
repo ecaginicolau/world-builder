@@ -2,6 +2,28 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Polish post-3/4 complet — Slice 4.y livré)
+
+**Tout le polish post-Slice 3/4 est livré et validé live.** Récapitulatif des paquets :
+
+| Paquet | Contenu | Statut |
+|---|---|---|
+| 3.x | AppHeader nav + Settings + Monitoring + cache extract fix | ✅ |
+| 3.x bugs | Toggle monitoring 1-click + × persistant et clickable | ✅ |
+| 3.y | Couleurs entity types + highlight in-editor (Tiptap Decoration) + bug fix re-build sur docChange | ✅ |
+| 4.x | Feature parity chapters (chat + entities + auto-extract + highlights) + LinkSource pattern | ✅ |
+| Layout | 3-col desktop entities | editor | chat (avec scroll indépendant) + page widened à max-w-screen-2xl | ✅ |
+| 4.y | Notes archive UX (toggle list, bouton archive, opacity+badge, auto-archive option en promotion) | ✅ |
+
+### Validation live Slice 4.y
+- WorldDetailScreen : nouveau header section "NOTES" avec toggle "Show archived" à droite.
+- NoteScreen : bouton "Archive" dans le header (devient "Unarchive" quand archived). Toggle direct, pas de confirm.
+- Note archived → disparaît de la liste par défaut. Cocher "Show archived" → réapparaît avec badge `ARCHIVED` + opacity 60%, toujours cliquable.
+- Modal "Promote → chapter" : nouvelle checkbox "Archive this note after promoting" (cochée par défaut) — la note source est archivée automatiquement après promotion.
+- Pas de migration nécessaire (`notes.status` déjà 'open'/'archived' depuis V002).
+
+---
+
 ## Status (2026-05-01 PM, Slice 4.x livré et validé live)
 
 **Slice 4.x livré** — feature parity complète sur chapters : chat IA + linked entities (chip picker) + auto-extract + highlight in-editor. Validé live OpenAI sur "Confrontation à la forteresse".
@@ -316,7 +338,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 | **1** ✅⭐ | **Quick capture + Chat IA sur note** + world memory + tier/reasoning UI + audit log runs. Validé live OpenAI 2026-05-01. | **Concept central validé ✓** |
 | **2** ✅ | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat). Validé live 2026-05-01. | Apport du contexte structuré ✓ |
 | **3** ⏳ | **Auto-extraction d'entités** + promotion note → entité. Phase A validée live OpenAI 2026-05-01 ; Phase B (V004 + redeploy llm-call) en attente. | Cristallisation depuis brainstorm |
-| **4** ⏳ | **Hiérarchie books/parts/chapters** + promotion note → chapitre. Phase A code-complete 2026-05-01 ; Phase B (V005) en attente. | Structure narrative |
+| **4** ✅ | **Hiérarchie books/parts/chapters** + promotion note → chapitre + feature parity (chat + entities + extract sur chapters). Validé live 2026-05-01. | Structure narrative ✓ |
 | **5** | Timeline + ranks (events, drag to reorder, override chronological_rank) | Chronologie |
 | **6** | **Versioning append-only** + résolution "state at rank R" | Évolution dans le temps |
 | **7** | **Upscale** + **Proposals** (diffs structurés sur entités depuis chapitre) | Boucle écriture → mise à jour entités |
