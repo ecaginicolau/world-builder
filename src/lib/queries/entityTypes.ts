@@ -1,10 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import type { EntityType } from '@/features/entities/types';
+import type { EntityType, FieldDef } from '@/features/entities/types';
 
 export const entityTypesKeys = {
   byWorld: (worldId: string) => ['entityTypes', 'byWorld', worldId] as const,
+  detail: (id: string) => ['entityType', 'detail', id] as const,
 };
+
+export function useEntityType(typeId: string) {
+  return useQuery<EntityType, Error>({
+    queryKey: entityTypesKeys.detail(typeId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('entity_types')
+        .select('*')
+        .eq('id', typeId)
+        .single();
+      if (error) throw error;
+      return data as EntityType;
+    },
+    enabled: !!typeId,
+  });
+}
 
 export function useEntityTypes(worldId: string) {
   return useQuery<EntityType[], Error>({
@@ -54,12 +71,19 @@ export function useUpdateEntityType() {
   return useMutation<
     EntityType,
     Error,
-    { id: string; worldId: string; name?: string; color?: string | null }
+    {
+      id: string;
+      worldId: string;
+      name?: string;
+      color?: string | null;
+      fields?: FieldDef[];
+    }
   >({
-    mutationFn: async ({ id, name, color }) => {
+    mutationFn: async ({ id, name, color, fields }) => {
       const patch: Record<string, unknown> = {};
       if (name !== undefined) patch.name = name;
       if (color !== undefined) patch.color = color;
+      if (fields !== undefined) patch.fields = fields;
       const { data, error } = await supabase
         .from('entity_types')
         .update(patch)
@@ -71,6 +95,7 @@ export function useUpdateEntityType() {
     },
     onSuccess: (et) => {
       void qc.invalidateQueries({ queryKey: entityTypesKeys.byWorld(et.world_id) });
+      void qc.invalidateQueries({ queryKey: entityTypesKeys.detail(et.id) });
     },
   });
 }

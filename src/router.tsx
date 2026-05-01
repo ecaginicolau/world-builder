@@ -11,6 +11,8 @@ import { WorldsScreen } from './features/worlds/WorldsScreen';
 import { WorldDetailScreen } from './features/notes/WorldDetailScreen';
 import { NoteScreen } from './features/notes/NoteScreen';
 import { EntitiesScreen } from './features/entities/EntitiesScreen';
+import { EntityDetailScreen } from './features/entities/EntityDetailScreen';
+import { EntityTypeDetailScreen } from './features/entities/EntityTypeDetailScreen';
 import { BooksScreen } from './features/chapters/BooksScreen';
 import { BookDetailScreen } from './features/chapters/BookDetailScreen';
 import { ChapterScreen } from './features/chapters/ChapterScreen';
@@ -74,6 +76,20 @@ const entitiesRoute = createRoute({
   component: EntitiesScreen,
 });
 
+const entityDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/entities/$entityId',
+  beforeLoad: requireAuth,
+  component: EntityDetailScreen,
+});
+
+const entityTypeDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/entity-types/$typeId',
+  beforeLoad: requireAuth,
+  component: EntityTypeDetailScreen,
+});
+
 const booksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/worlds/$worldId/books',
@@ -116,6 +132,8 @@ const routeTree = rootRoute.addChildren([
   worldDetailRoute,
   noteRoute,
   entitiesRoute,
+  entityDetailRoute,
+  entityTypeDetailRoute,
   booksRoute,
   bookDetailRoute,
   chapterRoute,

@@ -15,6 +15,15 @@ const LAST = ALPHABET[ALPHABET.length - 1];
 export const START_RANK = `${FIRST}1`;
 export const END_RANK = `${LAST}1`;
 
+/**
+ * Sentinel for "before any chapter / event in the timeline" — used as the
+ * `valid_from_rank` of the implicit v0 created when an entity gets its first
+ * version. The leading `!` (0x21) is below all alphabet chars (digits 0x30+),
+ * so `INIT_RANK` is lexicographically less than any rank produced by
+ * `rankBetween` or `nextRankAfter`.
+ */
+export const INIT_RANK = '!init';
+
 function indexOf(c: string): number {
   const i = ALPHABET.indexOf(c);
   if (i < 0) throw new Error(`rank: invalid char ${JSON.stringify(c)}`);

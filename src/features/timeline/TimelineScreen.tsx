@@ -131,34 +131,49 @@ export function TimelineScreen() {
           screen.
         </p>
       ) : (
-        <ul className="space-y-2" data-testid="timeline-list">
-          {items.map((item, i) => (
-            <TimelineRow
-              key={`${item.kind}:${item.data.id}`}
-              item={item}
-              worldId={worldId}
-              isFirst={i === 0}
-              isLast={i === items.length - 1}
-              partsById={partsById}
-              booksById={booksById}
-              onMoveUp={() => onMove(i, 'up')}
-              onMoveDown={() => onMove(i, 'down')}
-              onSaveEvent={(patch) => {
-                if (item.kind !== 'event') return;
-                updateEvent.mutate({ id: item.data.id, ...patch });
-              }}
-              onDeleteEvent={async () => {
-                if (item.kind !== 'event') return;
-                const ok = await confirm({
-                  title: `Delete event "${item.data.title}"?`,
-                  danger: true,
-                });
-                if (!ok) return;
-                deleteEvent.mutate({ id: item.data.id, worldId });
-              }}
-            />
-          ))}
-        </ul>
+        <div className="flex flex-col" data-testid="timeline-wrapper">
+          <p
+            className="pb-1 text-center text-[11px] uppercase tracking-wider text-fg-muted"
+            data-testid="timeline-earlier-label"
+          >
+            ↑ Earlier in the story
+          </p>
+          <ul className="space-y-2" data-testid="timeline-list">
+            {items.map((item, i) => (
+              <TimelineRow
+                key={`${item.kind}:${item.data.id}`}
+                item={item}
+                index={i + 1}
+                worldId={worldId}
+                isFirst={i === 0}
+                isLast={i === items.length - 1}
+                partsById={partsById}
+                booksById={booksById}
+                onMoveUp={() => onMove(i, 'up')}
+                onMoveDown={() => onMove(i, 'down')}
+                onSaveEvent={(patch) => {
+                  if (item.kind !== 'event') return;
+                  updateEvent.mutate({ id: item.data.id, ...patch });
+                }}
+                onDeleteEvent={async () => {
+                  if (item.kind !== 'event') return;
+                  const ok = await confirm({
+                    title: `Delete event "${item.data.title}"?`,
+                    danger: true,
+                  });
+                  if (!ok) return;
+                  deleteEvent.mutate({ id: item.data.id, worldId });
+                }}
+              />
+            ))}
+          </ul>
+          <p
+            className="pt-1 text-center text-[11px] uppercase tracking-wider text-fg-muted"
+            data-testid="timeline-later-label"
+          >
+            Later in the story ↓
+          </p>
+        </div>
       )}
     </main>
   );
@@ -166,6 +181,7 @@ export function TimelineScreen() {
 
 interface RowProps {
   item: TimelineItem;
+  index: number;
   worldId: string;
   isFirst: boolean;
   isLast: boolean;
@@ -179,6 +195,7 @@ interface RowProps {
 
 function TimelineRow({
   item,
+  index,
   worldId,
   isFirst,
   isLast,
@@ -203,6 +220,7 @@ function TimelineRow({
         data-kind="chapter"
       >
         <ReorderColumn
+          index={index}
           isFirst={isFirst}
           isLast={isLast}
           onUp={onMoveUp}
@@ -230,6 +248,7 @@ function TimelineRow({
     >
       <div className="flex items-stretch">
         <ReorderColumn
+          index={index}
           isFirst={isFirst}
           isLast={isLast}
           onUp={onMoveUp}
@@ -279,31 +298,39 @@ function TimelineRow({
 }
 
 interface ReorderProps {
+  index: number;
   isFirst: boolean;
   isLast: boolean;
   onUp: () => void;
   onDown: () => void;
 }
 
-function ReorderColumn({ isFirst, isLast, onUp, onDown }: ReorderProps) {
+function ReorderColumn({ index, isFirst, isLast, onUp, onDown }: ReorderProps) {
   return (
-    <div className="flex flex-col justify-center border-r border-border bg-bg-subtle">
+    <div className="flex w-10 flex-col items-center justify-center border-r border-border bg-bg-subtle">
       <button
         type="button"
         onClick={onUp}
         disabled={isFirst}
         className="px-2 py-1 text-xs text-fg-muted hover:text-fg disabled:opacity-30"
-        title="Move up"
+        title="Move earlier"
         data-testid="timeline-move-up"
       >
         ▲
       </button>
+      <span
+        className="font-mono text-[10px] tabular-nums text-fg-muted"
+        title="Chronological position"
+        data-testid="timeline-index"
+      >
+        #{index}
+      </span>
       <button
         type="button"
         onClick={onDown}
         disabled={isLast}
         className="px-2 py-1 text-xs text-fg-muted hover:text-fg disabled:opacity-30"
-        title="Move down"
+        title="Move later"
         data-testid="timeline-move-down"
       >
         ▼

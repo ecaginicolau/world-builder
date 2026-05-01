@@ -7,15 +7,9 @@ import {
   useCreateEntityType,
   useDeleteEntityType,
   useEntityTypes,
-  useUpdateEntityType,
 } from '@/lib/queries/entityTypes';
 import { chipBgFromHex, chipBorderFromHex, resolveColor } from '@/lib/entityColors';
-import {
-  useCreateEntity,
-  useDeleteEntity,
-  useEntities,
-  useUpdateEntity,
-} from '@/lib/queries/entities';
+import { useCreateEntity, useEntities } from '@/lib/queries/entities';
 import type { Entity, EntityType } from './types';
 
 export function EntitiesScreen() {
@@ -25,20 +19,14 @@ export function EntitiesScreen() {
   const typesQ = useEntityTypes(worldId);
   const entitiesQ = useEntities(worldId);
   const createType = useCreateEntityType();
-  const updateType = useUpdateEntityType();
   const deleteType = useDeleteEntityType();
   const createEntity = useCreateEntity();
-  const updateEntity = useUpdateEntity();
-  const deleteEntity = useDeleteEntity();
   const confirm = useConfirm();
   const alert = useAlert();
 
   const [newTypeName, setNewTypeName] = useState('');
   const [newEntityName, setNewEntityName] = useState('');
   const [newEntityTypeId, setNewEntityTypeId] = useState<string>('');
-  const [editing, setEditing] = useState<{ id: string; name: string; entity_type_id: string } | null>(
-    null,
-  );
 
   async function onAddType(e: FormEvent) {
     e.preventDefault();
@@ -77,25 +65,6 @@ export function EntitiesScreen() {
     deleteType.mutate({ id: t.id, worldId });
   }
 
-  async function onDeleteEntity(e: Entity) {
-    const ok = await confirm({ title: `Delete entity "${e.name}"?`, danger: true });
-    if (!ok) return;
-    deleteEntity.mutate({ id: e.id, worldId });
-  }
-
-  function onSaveEdit() {
-    if (!editing) return;
-    updateEntity.mutate(
-      {
-        id: editing.id,
-        worldId,
-        name: editing.name,
-        entityTypeId: editing.entity_type_id,
-      },
-      { onSuccess: () => setEditing(null) },
-    );
-  }
-
   const typesById = new Map((typesQ.data ?? []).map((t) => [t.id, t]));
   const entitiesByType = new Map<string, Entity[]>();
   for (const e of entitiesQ.data ?? []) {
@@ -105,7 +74,7 @@ export function EntitiesScreen() {
   }
 
   return (
-    <main className="mx-auto flex h-full max-w-3xl flex-col gap-6 px-6 py-6">
+    <main className="mx-auto flex h-full max-w-3xl flex-col gap-6 overflow-y-auto px-6 py-6">
       <header>
         <Link
           to="/worlds/$worldId"
@@ -163,18 +132,14 @@ export function EntitiesScreen() {
                   }}
                   data-testid="type-chip"
                 >
-                  <input
-                    type="color"
-                    value={color}
-                    onChange={(e) =>
-                      updateType.mutate({ id: t.id, worldId, color: e.target.value })
-                    }
-                    className="h-4 w-4 cursor-pointer border-0 bg-transparent p-0"
-                    title={`Color for ${t.name}`}
-                    aria-label={`Color for ${t.name}`}
-                    data-testid="type-color"
-                  />
-                  <span>{t.name}</span>
+                  <Link
+                    to="/worlds/$worldId/entity-types/$typeId"
+                    params={{ worldId, typeId: t.id }}
+                    className="hover:underline"
+                    data-testid="type-link"
+                  >
+                    {t.name}
+                  </Link>
                   <button
                     type="button"
                     onClick={() => onDeleteType(t)}
@@ -263,78 +228,20 @@ export function EntitiesScreen() {
                   </div>
                   <ul className="space-y-1">
                     {items.map((e) => (
-                      <li
-                        key={e.id}
-                        className="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-panel px-3 py-2 text-sm"
-                        data-testid="entity-row"
-                      >
-                        {editing?.id === e.id ? (
-                          <>
-                            <input
-                              value={editing.name}
-                              onChange={(ev) =>
-                                setEditing({ ...editing, name: ev.target.value })
-                              }
-                              className="flex-1 px-2 py-1 text-sm"
-                              data-testid="entity-edit-name"
-                            />
-                            <select
-                              value={editing.entity_type_id}
-                              onChange={(ev) =>
-                                setEditing({ ...editing, entity_type_id: ev.target.value })
-                              }
-                              className="bg-bg-subtle px-2 py-1 text-sm"
-                              data-testid="entity-edit-type"
-                            >
-                              {typesQ.data?.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              onClick={onSaveEdit}
-                              className="bg-accent px-2 py-1 text-xs font-medium text-accent-fg"
-                              data-testid="entity-save"
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditing(null)}
-                              className="text-xs text-fg-muted hover:text-fg"
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <span className="flex-1">{e.name}</span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setEditing({
-                                  id: e.id,
-                                  name: e.name,
-                                  entity_type_id: e.entity_type_id,
-                                })
-                              }
-                              className="text-xs text-fg-muted hover:text-fg"
-                              data-testid="entity-edit"
-                            >
-                              edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDeleteEntity(e)}
-                              className="text-xs text-fg-muted hover:text-red-400"
-                              data-testid="entity-delete"
-                            >
-                              delete
-                            </button>
-                          </>
-                        )}
+                      <li key={e.id} data-testid="entity-row">
+                        <Link
+                          to="/worlds/$worldId/entities/$entityId"
+                          params={{ worldId, entityId: e.id }}
+                          className="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-panel px-3 py-2 text-sm hover:bg-bg-subtle"
+                          data-testid="entity-link"
+                        >
+                          <span className="flex-1">{e.name}</span>
+                          {(e.aliases?.length ?? 0) > 0 ? (
+                            <span className="text-xs text-fg-muted">
+                              aka {e.aliases.join(', ')}
+                            </span>
+                          ) : null}
+                        </Link>
                       </li>
                     ))}
                   </ul>

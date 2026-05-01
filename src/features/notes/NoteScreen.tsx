@@ -16,6 +16,7 @@ import { useAutoExtract } from './useAutoExtract';
 import { useNoteLinkSource } from './linkSources';
 import { PromoteToChapterModal } from './PromoteToChapterModal';
 import { PromoteToEventModal } from './PromoteToEventModal';
+import { PromoteToEntityVersionModal } from './PromoteToEntityVersionModal';
 import { useConfirm } from '@/lib/useConfirm';
 import type { EntityHighlightSpec } from './entityHighlightExtension';
 import type { TaggedEntity } from '@/lib/llm';
@@ -37,6 +38,7 @@ export function NoteScreen() {
   const [title, setTitle] = useState<string | null>(null);
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [promoteEventOpen, setPromoteEventOpen] = useState(false);
+  const [promoteVersionOpen, setPromoteVersionOpen] = useState(false);
 
   const currentTitle = title ?? noteQ.data?.title ?? '';
 
@@ -140,6 +142,14 @@ export function NoteScreen() {
           </button>
           <button
             type="button"
+            onClick={() => setPromoteVersionOpen(true)}
+            className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
+            data-testid="promote-to-version"
+          >
+            Promote → version
+          </button>
+          <button
+            type="button"
             onClick={onToggleArchive}
             className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
             data-testid="toggle-archive"
@@ -231,6 +241,14 @@ export function NoteScreen() {
         worldId={worldId}
         noteId={noteId}
         noteTitle={currentTitle || undefined}
+        noteContent={noteQ.data.content}
+      />
+
+      <PromoteToEntityVersionModal
+        open={promoteVersionOpen}
+        onClose={() => setPromoteVersionOpen(false)}
+        worldId={worldId}
+        noteId={noteId}
         noteContent={noteQ.data.content}
       />
     </main>

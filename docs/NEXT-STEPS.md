@@ -2,6 +2,57 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-01 PM, Slice 6 livré et validé live)
+
+**Slice 6 livré, V008 appliquée, full flow validé live.** Versioning append-only des entities + résolution "state at rank R" + vraies pages d'édition entity & entity_type + aliases enfin exposés.
+
+**Demo guide** : [docs/demo/slice-6-versioning.md](./demo/slice-6-versioning.md) — walkthrough ~5 min.
+**Plan détaillé** : [docs/slice-6-plan.md](./slice-6-plan.md).
+
+### Validation live Slice 6
+
+- EntityTypeDetailScreen : éditeur de fields (string|text|int|bool, required, reorder ↑↓, remove). Pour Personnages : ajouté `age (int) / bio (text) / alive (bool)`, save, fields persistés ✓.
+- EntityDetailScreen sur Iria :
+  - Aliases ajoutés "la jeune fille" + "lui" via Enter ✓.
+  - "+ New version" au rank "📖 Confrontation à la forteresse" : age=17, bio=Jeune femme intrépide…, alive=true. Sauvegarde + retour fiche, "From version at 📖 Confrontation à la forteresse" affiché. Versions (2) avec "initial" + "at Confrontation…" + chips diff `age bio alive` ✓.
+  - 2ᵉ version au rank "📅 Le resultat de la grande bataille" : age=18, bio=Capitaine de la garde… → Versions (3), 3ᵉ row chips diff `age bio` (alive unchanged donc absent) ✓.
+  - Scrubber rank "📅 Rencontre à la Vieille Forteresse" → revient à v1 (age=17). Picker fonctionne pour la résolution state-at-rank ✓.
+- Promote → version depuis NoteScreen :
+  - 4ᵉ bouton "Promote → version" dans header NoteScreen ✓.
+  - Modal : entity dropdown (toutes les entities du world avec leur type entre parens), rank dropdown chronologique, form auto-généré depuis le type de l'entity choisie, pré-rempli avec valeurs au rank choisi ✓.
+  - Promote Maitre Sorn (Personnages) au rank Rencontre… avec age=55, bio=Vieux maître…, alive=true → redirect vers fiche Maitre Sorn, Versions (2) ✓.
+- Console clean (les `message channel closed` sont du bruit de l'extension Chrome, pas de l'app).
+
+### Ce qui a été fait dans Slice 6
+
+- **V008** : `entity_versions` (entity_id + world_id + valid_from_rank + snapshot jsonb + source_note_id + source_chapter_id + note_excerpt) + trigger `prevent_modification` (BEFORE UPDATE) + index `(entity_id, valid_from_rank DESC)` pour la résolution O(log n) + RLS owner-scoped (SELECT/INSERT seulement, pas d'UPDATE/DELETE policies).
+- **Sentinel** `INIT_RANK = '!init'` dans `src/lib/ranks.ts`. `'!'` (0x21) < `'0'` (0x30, premier char de l'alphabet base-62) donc lex < tous les ranks générés. Test ranks.test.ts ajouté.
+- **Helpers `src/features/entities/versioning.ts`** :
+  - `resolveStateAtRank(versions, rank)` : version la plus récente avec `valid_from_rank <= rank` (avec sentinel `~current` pour "latest").
+  - `buildRankPickerItems(chapters, events)` : merge + sort lex par `chronological_rank`.
+  - `versionLabelForRank(rank, items)` : "initial" / "at 📖 X" / "after 📅 Y" / "before timeline start".
+  - `coerceFieldValue(kind, raw)` + `formatFieldValue(value)` + `diffSnapshots(prev, next)`.
+  - **16 tests Vitest** dans `versioning.test.ts`.
+- **Types** : `FieldKind = 'string' | 'text' | 'int' | 'bool'`, `FieldDef`, `Snapshot`, `EntityVersion` dans `src/features/entities/types.ts`.
+- **Queries** : `src/lib/queries/entityVersions.ts` (`useEntityVersions`, `useCreateEntityVersion`, `ensureInitVersion`). `useEntity` + `useEntityType` ajoutées (lookups par id). `useUpdateEntity` étendu avec `aliases` + `tags`. `useUpdateEntityType` étendu avec `fields`.
+- **Routes nouvelles** :
+  - `/worlds/$worldId/entity-types/$typeId` → EntityTypeDetailScreen
+  - `/worlds/$worldId/entities/$entityId` → EntityDetailScreen
+- **EntitiesScreen refactor** : suppression de l'édition inline (name + type). Chips de type cliquables vers detail. Rows entity = `<Link>` vers la fiche. Quick-create reste.
+- **NewVersionModal** + **PromoteToEntityVersionModal** : forms auto-générés depuis les `FieldDef` du type, type-specific input (`number` pour int, `textarea` pour text, `checkbox` pour bool, sinon `text`).
+- **NoteScreen** : 4ᵉ bouton "Promote → version" dans le header.
+
+### Décisions tranchées Slice 6 (cf. `docs/slice-6-plan.md`)
+
+- **Field kinds v1** : `string | text | int | bool` seulement. `rel`/`relList` reportés.
+- **Aliases** : édition exposée enfin (chip input avec Enter). La détection/highlight les utilisait déjà depuis Slice 3.y mais ils étaient toujours `[]` en pratique faute d'UI.
+- **Edit name d'une entity** : reste un `UPDATE entities` direct (méta hors-canon, comme aliases/tags).
+- **v0 implicite** au sentinel `'!init'` créée par `ensureInitVersion()` lors de la 1ʳᵉ "New version" — pas besoin de back-fill data existante.
+- **Picker rank** : dropdown chronologique merged chapters+events, pas de slider.
+- **Pas d'auto-diff LLM** au promote — Slice 7.
+
+---
+
 ## Status (2026-05-01 PM, Slice 5 livré et validé live + ConfirmDialog réutilisable)
 
 **Slice 5 livré, V007 appliquée, full flow validé live.** Timeline avec events + chapters mergés, reorder cross-table, edit/delete events, promote note → event. En cours de session, on a aussi remplacé tous les `window.confirm()` / `window.alert()` par un composant `ConfirmDialog` réutilisable themed dark.
@@ -413,7 +464,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 | **3** ⏳ | **Auto-extraction d'entités** + promotion note → entité. Phase A validée live OpenAI 2026-05-01 ; Phase B (V004 + redeploy llm-call) en attente. | Cristallisation depuis brainstorm |
 | **4** ✅ | **Hiérarchie books/parts/chapters** + promotion note → chapitre + feature parity (chat + entities + extract sur chapters). Validé live 2026-05-01. | Structure narrative ✓ |
 | **5** ✅ | **Timeline + events + reorder ↑↓** (merge chapters + events par chronological_rank, edit/delete events inline, promote note → event). Validé live 2026-05-01. | Chronologie ✓ |
-| **6** | **Versioning append-only** + résolution "state at rank R" | Évolution dans le temps |
+| **6** ✅ | **Versioning append-only** + résolution "state at rank R" + vraies pages d'édition entity & entity_type + aliases enfin exposés. Validé live 2026-05-01. | Évolution dans le temps ✓ |
 | **7** | **Upscale** + **Proposals** (diffs structurés sur entités depuis chapitre) | Boucle écriture → mise à jour entités |
 | **8** | **Reader view** + summaries S/M/L + runs history + search + Chapter `published` flag | Polish + ergonomie |
 

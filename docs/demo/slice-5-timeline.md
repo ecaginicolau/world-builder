@@ -11,18 +11,23 @@
 ## Setup en 30 s
 
 1. Depuis le world dashboard, clique le tab **`Timeline`** 📅 dans le header.
-2. Vérifie : URL passe à `/worlds/.../timeline`, le chapter existant apparaît dans la liste avec son contexte (`📖 Chapter · <Book> · <Part>`), et le compteur en haut à droite affiche `1 chapter · 0 events`.
+2. Vérifie :
+   - URL passe à `/worlds/.../timeline`.
+   - Le chapter existant apparaît dans la liste avec son contexte (`📖 Chapter · <Book> · <Part>`).
+   - Compteur en haut à droite : `1 chapter · 0 events`.
+   - Labels de direction visibles : `↑ EARLIER IN THE STORY` au-dessus de la liste, `LATER IN THE STORY ↓` en-dessous.
+   - Chaque item a un badge `#N` (rang chronologique) entre les boutons `▲ ▼` à gauche.
 
 ## Golden path
 
 1. **Créer un event** : tape `La Grande Bataille` dans l'input du haut, clique **+ Event**.
    - ✅ Le compteur passe à `1 chapter · 1 event`.
-   - ✅ Le nouvel event apparaît **en bas** de la liste (rank > chapter).
+   - ✅ Le nouvel event apparaît **en bas** de la liste avec un badge `#2` (donc plus tard chronologiquement que le chapter `#1`).
 2. **Reorder ↑** : sur la ligne de l'event, clique le triangle haut.
-   - ✅ L'event remonte au-dessus du chapter.
-   - ✅ Le triangle haut de l'event devient grisé (déjà premier).
+   - ✅ L'event remonte au-dessus du chapter et devient `#1` ; le chapter passe `#2`.
+   - ✅ Le triangle haut de l'event (`#1`) devient grisé (déjà earliest).
 3. **Reorder ▼** : sur l'event (toujours), clique le triangle bas.
-   - ✅ L'event redescend sous le chapter.
+   - ✅ L'event redescend sous le chapter et redevient `#2`.
 4. **Edit l'event** : clique `edit` sur la ligne event.
    - ✅ Un panneau s'ouvre sous l'event avec `Title`, `Description` (textarea), `Tags`.
    - Tape une description multi-ligne et des tags séparés par des virgules (ex : `war, off-screen`), clique **Save**.
