@@ -149,16 +149,13 @@ export function NoteScreen() {
       />
 
       <div
-        className={`grid flex-1 min-h-0 gap-4 ${
-          chatPanelOpen ? 'grid-cols-1 md:grid-cols-[2fr_1fr]' : 'grid-cols-1'
+        className={`grid min-h-0 flex-1 gap-4 grid-cols-1 ${
+          chatPanelOpen
+            ? 'md:grid-cols-[260px_1fr_320px]'
+            : 'md:grid-cols-[260px_1fr]'
         }`}
       >
-        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-          <NoteEditor
-            initialContent={noteQ.data.content}
-            onChange={onContentChange}
-            entityHighlights={entityHighlights}
-          />
+        <aside className="order-2 flex min-h-0 flex-col gap-4 overflow-y-auto md:order-1">
           <LinkedEntitiesPanel worldId={worldId} source={linkSource} />
           <DetectedEntitiesPanel
             noteIdForPromotionLog={noteId}
@@ -168,9 +165,16 @@ export function NoteScreen() {
             error={extract.error}
             source={linkSource}
           />
+        </aside>
+        <div className="order-1 min-h-0 overflow-y-auto md:order-2">
+          <NoteEditor
+            initialContent={noteQ.data.content}
+            onChange={onContentChange}
+            entityHighlights={entityHighlights}
+          />
         </div>
         {chatPanelOpen ? (
-          <div className="min-h-0">
+          <div className="order-3 min-h-0">
             <ChatPanel
               parentKind="note"
               parentId={noteId}
