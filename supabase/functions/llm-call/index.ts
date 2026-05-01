@@ -1,32 +1,35 @@
 // Supabase Edge Function: llm-call
 // Proxies an OpenAI chat completion using OPENAI_API_KEY from secrets.
-// Deployed manually in Phase B (see docs/slice-1-plan.md).
 //
 // Request body:
 //   { messages: Array<{ role: 'system'|'user'|'assistant'; content: string }>,
-//     model?: string }
+//     model?: string,
+//     reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' }
 // Response (200):
 //   { content: string, model: string, usage: { prompt_tokens, completion_tokens, total_tokens } }
 //
-// Auth: relies on Supabase's default JWT verification (only authenticated users).
+// Deploy: dashboard upload OR `supabase functions deploy llm-call --no-verify-jwt`.
+// "Verify JWT" must be OFF on this function so the OPTIONS preflight is reachable;
+// requests are still gated by the anon key, and the function reads no user data.
 
 // deno-lint-ignore-file no-explicit-any
-// @ts-nocheck — Deno globals; this file runs on Edge Functions, not in Vite.
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+// @ts-nocheck — Deno globals; runs on Edge Functions, not in Vite.
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_MODEL = 'gpt-5.4-mini';
+const ALLOWED_EFFORT = new Set(['low', 'medium', 'high', 'xhigh']);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
+    'authorization, apikey, content-type, x-client-info',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
 };
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
   if (req.method !== 'POST') {
     return json({ error: 'method not allowed' }, 405);
@@ -51,13 +54,18 @@ serve(async (req: Request) => {
 
   const model = typeof body.model === 'string' && body.model ? body.model : DEFAULT_MODEL;
 
+  const upstreamBody: Record<string, unknown> = { model, messages };
+  if (typeof body.reasoning_effort === 'string' && ALLOWED_EFFORT.has(body.reasoning_effort)) {
+    upstreamBody.reasoning_effort = body.reasoning_effort;
+  }
+
   const upstream = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model, messages, temperature: 0.7 }),
+    body: JSON.stringify(upstreamBody),
   });
 
   if (!upstream.ok) {

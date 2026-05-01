@@ -93,6 +93,8 @@ export function ChatPanel({ noteId, worldId, worldMemory, noteContextText }: Pro
         noteContext: noteContextText,
         history,
         userMessage: userText,
+        tier: 'medium',
+        reasoning: 'none',
       });
 
       await insertMessage.mutateAsync({
