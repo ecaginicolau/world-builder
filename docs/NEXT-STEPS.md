@@ -4,7 +4,11 @@ Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil 
 
 ## État actuel
 
-Phase : **planification finalisée — prêt pour scaffold**.
+**Slice 0 livré et validé end-to-end le 2026-05-01.** Login + worlds CRUD + PWA scaffold + cycle dev/test (typecheck/lint/Vitest/Playwright/Chrome-pilot) opérationnel.
+
+**Slice 1 prêt à démarrer en autonomie** — voir [slice-1-plan.md](./slice-1-plan.md) qui détaille Phase A (Claude seul) et Phase B (5 min user).
+
+En cours côté user : Vercel deploy ([deploy.md](./deploy.md)).
 
 Doc de référence : **[product-design.md](./product-design.md)** (canonique, supersede l'ancien design doc).
 
@@ -50,7 +54,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 
 | Slice | Ce qui marche | Valeur validée |
 |---|---|---|
-| **0** | Login Supabase, créer/lister des "worlds" vides, déployé en PWA | La stack tient debout |
+| **0** ✅ | Login Supabase (magic link), créer/lister des "worlds" vides, déployé en PWA | La stack tient debout |
 | **1** ⭐ | **Quick capture (mobile-first) + Chat IA sur note** (markdown). Pas d'entités, pas de chapitres. | **Le concept central est-il utile ?** |
 | **2** | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat) | Apport du contexte structuré |
 | **3** | **Auto-extraction d'entités** dans note/chat + promotion note → entité | Cristallisation depuis brainstorm |
@@ -90,15 +94,21 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 
 ## Prochaine action concrète
 
-**Slice 0 scaffold = livré et validé localement.** Login screen + Worlds screen + tests + migration + dev/test cycle.
+**Slice 0 = livré, testé end-to-end (auth, INSERT, SELECT, RLS), pushed.**
 
-Pour clôturer Slice 0 :
+### Ce que le user fait en parallèle
+- Vercel deploy (suivre [deploy.md](./deploy.md))
 
-1. Toi → tester un login avec ton vrai email à http://localhost:5173 (la magic link arrivera dans ta boîte)
-2. Une fois logué → je pilote Chrome pour créer un world et vérifier que ça arrive en DB
-3. Toi → suivre [deploy.md](./deploy.md) pour le premier deploy Vercel
+### Slice 1 — démarrage autonome possible
 
-Puis on attaque **Slice 1** (quick capture mobile + chat IA sur note).
+Une session Claude future peut **commencer Slice 1 sans inputs supplémentaires** en suivant [slice-1-plan.md](./slice-1-plan.md). Phase A est entièrement autonome ; Phase B (apply migration, OpenAI key, deploy Edge Function) demande 5 min au user.
+
+Recommandé pour la prochaine session :
+1. Lire [CLAUDE.md](../CLAUDE.md) (chargé auto)
+2. Lire ce fichier
+3. Lire [slice-1-plan.md](./slice-1-plan.md)
+4. Exécuter Phase A en ordre, valider chaque étape via le dev cycle
+5. S'arrêter et documenter quand Phase B est nécessaire
 
 ## Docs détaillées
 

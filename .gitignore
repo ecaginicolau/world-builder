@@ -84,3 +84,6 @@ dev-dist/
 playwright-report/
 test-results/
 playwright/.cache/
+
+# Claude Code session-local
+.claude/
