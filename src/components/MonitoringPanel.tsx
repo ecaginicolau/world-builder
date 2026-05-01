@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useRouterState } from '@tanstack/react-router';
-import { useUiStore } from '@/lib/uiStore';
 import { useRecentRuns, type RunRow } from '@/lib/queries/runs';
+import { useMonitoringToggle } from './useMonitoringToggle';
 
 const WORLD_ID_RE = /^\/worlds\/([0-9a-f-]{36})(?:\/|$)/i;
 
@@ -17,8 +17,7 @@ function formatTime(iso: string): string {
 }
 
 export function MonitoringPanel() {
-  const open = useUiStore((s) => s.monitoringOpen);
-  const setOpen = useUiStore((s) => s.setMonitoringOpen);
+  const { open, setOpen } = useMonitoringToggle();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const worldId = useMemo(() => {
     const m = pathname.match(WORLD_ID_RE);
@@ -35,7 +34,7 @@ export function MonitoringPanel() {
       style={{ height: 240 }}
       data-testid="monitoring-panel"
     >
-      <header className="flex h-7 items-center justify-between border-b border-border bg-bg-subtle px-2 text-xs">
+      <header className="flex h-8 items-center justify-between border-b border-border bg-bg-subtle pl-2 text-xs">
         <span>
           📊 Monitoring · last 20 runs
           {worldId ? '' : ' (pick a world to see runs)'}
@@ -43,13 +42,16 @@ export function MonitoringPanel() {
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="text-fg-muted hover:text-fg"
+          className="flex h-8 w-10 items-center justify-center text-base text-fg-muted hover:bg-bg-panel hover:text-fg"
+          aria-label="Close monitoring panel"
+          title="Close monitoring panel"
           data-testid="monitoring-close"
         >
           ×
         </button>
       </header>
-      <div className="h-[calc(100%-1.75rem)] overflow-y-auto">
+
+      <div className="h-[calc(100%-2rem)] overflow-y-auto">
         {runsQ.isLoading ? (
           <p className="p-2 text-xs text-fg-muted">Loading…</p>
         ) : runsQ.error ? (

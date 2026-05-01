@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useWorlds } from '@/lib/queries/worlds';
-import { useUiStore } from '@/lib/uiStore';
-import { useUpdateUserSettings, useUserSettings } from '@/lib/queries/userSettings';
+import { useMonitoringToggle } from './useMonitoringToggle';
 
 const WORLD_ID_RE = /^\/worlds\/([0-9a-f-]{36})(?:\/|$)/i;
 
@@ -28,10 +27,7 @@ export function AppHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const worldsQ = useWorlds();
-  const settingsQ = useUserSettings();
-  const updateSettings = useUpdateUserSettings();
-  const setMonitoringOpenLocal = useUiStore((s) => s.setMonitoringOpen);
-  const monitoringOpenLocal = useUiStore((s) => s.monitoringOpen);
+  const monitoring = useMonitoringToggle();
   const [worldMenuOpen, setWorldMenuOpen] = useState(false);
 
   const worldId = extractWorldId(pathname);
@@ -43,21 +39,6 @@ export function AppHeader() {
 
   // Hide on login + index.
   if (pathname === '/login' || pathname === '/') return null;
-
-  function toggleMonitoring() {
-    const next = !monitoringOpenLocal;
-    setMonitoringOpenLocal(next);
-    updateSettings.mutate({ patch: { monitoringOpen: next } });
-  }
-
-  // Sync server-side preference into local store on first load.
-  if (settingsQ.data && settingsQ.data.monitoringOpen !== undefined &&
-      settingsQ.data.monitoringOpen !== monitoringOpenLocal) {
-    // Only sync if server says open and we don't yet — avoids feedback loops on toggle.
-    if (settingsQ.data.monitoringOpen === true && !monitoringOpenLocal) {
-      setMonitoringOpenLocal(true);
-    }
-  }
 
   return (
     <header
@@ -142,10 +123,10 @@ export function AppHeader() {
       <div className="flex items-center gap-1">
         <button
           type="button"
-          onClick={toggleMonitoring}
+          onClick={monitoring.toggle}
           className={
             'px-2 py-1 text-sm ' +
-            (monitoringOpenLocal ? 'bg-accent text-accent-fg' : 'bg-bg-subtle hover:bg-bg-panel')
+            (monitoring.open ? 'bg-accent text-accent-fg' : 'bg-bg-subtle hover:bg-bg-panel')
           }
           title="Toggle monitoring panel"
           data-testid="monitoring-toggle"
