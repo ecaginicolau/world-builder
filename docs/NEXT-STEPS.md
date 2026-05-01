@@ -72,17 +72,24 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 - [x] Représentation des champs dynamiques d'`entity_types` (jsonb + Zod côté TS)
 - [x] Slicing des migrations (table par slice)
 
-### Setup projet (à faire dans une session de coding dédiée)
-- [ ] Init Vite + React + TS + Tailwind + shadcn/ui
-- [ ] Init Supabase (CLI + projet local Docker)
-- [ ] Première migration Postgres (slice 0 : `worlds` + `user_settings` + RLS)
-- [ ] Configurer Vercel + variables d'env
+### Setup projet
+- [x] Init Vite + React + TS + Tailwind (shadcn/ui à intégrer quand on a besoin de composants riches)
+- [x] Première migration Postgres (slice 0 : `worlds` + `user_settings` + RLS) — fichier `supabase/migrations/V001__slice_0_worlds.sql`
+- [x] Vitest + Playwright + ESLint configurés
+- [x] Cycle dev/test documenté → [dev-cycle.md](./dev-cycle.md)
+- [ ] Appliquer la migration sur le projet Supabase cloud (via SQL editor)
+- [ ] Renseigner `.env.local` (URL + anon key)
+- [ ] Tester login (magic link) + création de world end-to-end via Chrome
+- [ ] Configurer Vercel + variables d'env (deploy auto)
+- [ ] Installer Supabase CLI + Docker plus tard, quand on aura besoin des Edge Functions (Slice 1+)
 
 ## Prochaine action concrète
 
-**Phase planification close.** Toutes les décisions structurantes (stack, archi, design produit, data model) sont actées et documentées.
+Slice 0 scaffold est livré (Vite + React + TS + Tailwind + Supabase client + login + worlds CRUD + tests). Reste à finaliser :
 
-Prochaine session = **coding** : scaffold du Slice 0 (Vite + Supabase local + login + créer world vide + déploiement PWA Vercel).
+1. Appliquer la migration sur Supabase cloud
+2. Tester login + création de world via le browser piloté
+3. Déployer sur Vercel
 
 ## Docs détaillées
 
