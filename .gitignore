@@ -79,3 +79,8 @@ desktop.ini
 
 # PWA / service worker artifacts
 dev-dist/
+
+# Playwright
+playwright-report/
+test-results/
+playwright/.cache/
