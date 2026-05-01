@@ -1,0 +1,210 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useCreateThread,
+  useInsertMessage,
+  useMessages,
+  useThreads,
+} from '@/lib/queries/threads';
+import { useSession } from '@/features/auth/session';
+import { getLlm, type ChatMessage as LlmChatMessage } from '@/lib/llm';
+import type { ChatThread } from './types';
+
+interface Props {
+  noteId: string;
+  worldId: string;
+  worldMemory?: string;
+  noteContextText: string;
+}
+
+export function ChatPanel({ noteId, worldId, worldMemory, noteContextText }: Props) {
+  const session = useSession();
+  const threadsQ = useThreads(noteId);
+  const createThread = useCreateThread();
+  const insertMessage = useInsertMessage();
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeThreadId && threadsQ.data && threadsQ.data.length > 0) {
+      setActiveThreadId(threadsQ.data[0].id);
+    }
+  }, [threadsQ.data, activeThreadId]);
+
+  const messagesQ = useMessages(activeThreadId);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messagesQ.data?.length]);
+
+  async function ensureThread(): Promise<ChatThread | null> {
+    if (session.status !== 'authed') return null;
+    if (activeThreadId && threadsQ.data) {
+      const t = threadsQ.data.find((t) => t.id === activeThreadId);
+      if (t) return t;
+    }
+    const t = await createThread.mutateAsync({
+      worldId,
+      ownerId: session.session.user.id,
+      noteId,
+    });
+    setActiveThreadId(t.id);
+    return t;
+  }
+
+  async function newThread() {
+    if (session.status !== 'authed') return;
+    const t = await createThread.mutateAsync({
+      worldId,
+      ownerId: session.session.user.id,
+      noteId,
+    });
+    setActiveThreadId(t.id);
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (sending || !input.trim() || session.status !== 'authed') return;
+    setError(null);
+    setSending(true);
+    const userText = input.trim();
+    setInput('');
+    try {
+      const thread = await ensureThread();
+      if (!thread) return;
+
+      await insertMessage.mutateAsync({
+        threadId: thread.id,
+        ownerId: session.session.user.id,
+        role: 'user',
+        content: userText,
+      });
+
+      const history: LlmChatMessage[] = (messagesQ.data ?? []).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const llm = getLlm();
+      const resp = await llm.chat({
+        worldMemory,
+        noteContext: noteContextText,
+        history,
+        userMessage: userText,
+      });
+
+      await insertMessage.mutateAsync({
+        threadId: thread.id,
+        ownerId: session.session.user.id,
+        role: 'assistant',
+        content: resp.content,
+        model: resp.model,
+        provider: resp.provider,
+        tokensUsed: resp.tokensUsed ?? null,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <aside
+      className="flex h-full flex-col rounded-md border border-border bg-bg-panel"
+      data-testid="chat-panel"
+    >
+      <header className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="text-sm font-medium">
+          Chat {threadsQ.data && threadsQ.data.length > 1
+            ? `· ${threadsQ.data.findIndex((t) => t.id === activeThreadId) + 1}/${threadsQ.data.length}`
+            : ''}
+        </div>
+        <div className="flex items-center gap-2">
+          {threadsQ.data && threadsQ.data.length > 0 ? (
+            <select
+              value={activeThreadId ?? ''}
+              onChange={(e) => setActiveThreadId(e.target.value || null)}
+              className="bg-bg-subtle px-2 py-1 text-xs"
+              data-testid="thread-select"
+            >
+              {threadsQ.data.map((t, i) => (
+                <option key={t.id} value={t.id}>
+                  {t.title ?? `Thread ${i + 1}`}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <button
+            type="button"
+            onClick={newThread}
+            className="bg-bg-subtle px-2 py-1 text-xs hover:bg-bg"
+            data-testid="new-thread"
+          >
+            New
+          </button>
+        </div>
+      </header>
+
+      <div
+        ref={scrollRef}
+        className="flex-1 space-y-2 overflow-y-auto px-3 py-3"
+        data-testid="chat-messages"
+      >
+        {!activeThreadId ? (
+          <p className="text-sm text-fg-muted">Type below to start a thread.</p>
+        ) : messagesQ.isLoading ? (
+          <p className="text-sm text-fg-muted">Loading…</p>
+        ) : messagesQ.data && messagesQ.data.length === 0 ? (
+          <p className="text-sm text-fg-muted">No messages yet.</p>
+        ) : (
+          messagesQ.data?.map((m) => (
+            <div
+              key={m.id}
+              className={
+                m.role === 'user'
+                  ? 'self-end whitespace-pre-wrap rounded-md bg-accent/30 px-3 py-2 text-sm'
+                  : 'whitespace-pre-wrap rounded-md bg-bg-subtle px-3 py-2 text-sm'
+              }
+              data-testid={`chat-message-${m.role}`}
+            >
+              {m.content}
+            </div>
+          ))
+        )}
+      </div>
+
+      {error ? (
+        <p className="px-3 py-1 text-xs text-red-400" data-testid="chat-error">
+          {error}
+        </p>
+      ) : null}
+
+      <form
+        onSubmit={onSubmit}
+        className="flex gap-2 border-t border-border p-2"
+        data-testid="chat-form"
+      >
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Ask about this note…"
+          className="flex-1 px-3 py-2 text-sm"
+          data-testid="chat-input"
+          disabled={sending}
+        />
+        <button
+          type="submit"
+          disabled={sending || !input.trim()}
+          className="bg-accent px-3 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
+          data-testid="chat-send"
+        >
+          {sending ? '…' : 'Send'}
+        </button>
+      </form>
+    </aside>
+  );
+}

@@ -2,11 +2,55 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
-## État actuel
+## Status (2026-05-01, fin de session autonome Slice 1 — Phase A)
+
+**Slice 1 Phase A code-complete et validé localement.** Reste Phase B (5 min user) avant que le slice soit pleinement utilisable.
+
+### Ce qui est fait (Phase A)
+- Migration `supabase/migrations/V002__slice_1_notes.sql` — `notes`, `chat_threads`, `chat_messages`, `runs` + RLS owner-scoped + indexes.
+- Deps : `@tanstack/react-router`, `@tanstack/react-query`, `zustand`, `react-hook-form`, `zod`, `@tiptap/{react,pm,starter-kit,extension-placeholder}`.
+- Routing TanStack Router code-based (`src/router.tsx`) : `/`, `/login`, `/worlds`, `/worlds/$worldId`, `/worlds/$worldId/notes/$noteId`, gating via `beforeLoad`.
+- QueryClient (`src/lib/queryClient.ts`) : `retry: false` + `networkMode: 'always'` (sinon les fetches Chrome restent paused — pile dégueu sinon).
+- Data layer TanStack Query : `src/lib/queries/{worlds,notes,threads}.ts`.
+- UI store Zustand minimal pour panneau chat / quick-capture / lastWorldId.
+- Composants Slice 1 : `WorldDetailScreen`, `NoteEditor` (Tiptap), `ChatPanel`, `QuickCapture`, `NoteScreen`.
+- LLM abstraction : `src/lib/llm/{types,prompt,mock,openai,index}.ts`. Mock par défaut (`VITE_LLM_PROVIDER=mock`), provider OpenAI prêt à brancher l'Edge Function.
+- Edge Function skeleton : `supabase/functions/llm-call/index.ts` (Deno + std http, proxy OpenAI). Non déployée.
+- Tests : typecheck ✓, lint ✓, **10/10 Vitest** (ranks + prompt builder), **4/4 Playwright** (login render + 2 redirects unauth), build prod ✓.
+- Pilote Chrome live : route guard, navigation `/worlds → /worlds/:id`, retour, et l'erreur "table notes inexistante" rendue proprement (red banner) tant que V002 pas appliqué. Console clean (pas d'exception, pas d'erreur React).
+
+### Décisions unilatérales (à confirmer/override par le user)
+
+- **Stockage `notes.content`** : HTML brut sortant de Tiptap (pas de markdown serialization). Choisi pour la simplicité Slice 1. À revoir quand on connectera vraiment l'LLM (probablement strip → text via `htmlToPlainText` côté front, suffit pour un contexte LLM lisible). Pas de dépendance markdown ajoutée.
+- **Auto-création de thread** : on attend le premier message (cohérent avec le default suggéré dans `slice-1-plan.md`).
+- **Quick-capture target world** : la capture est rattachée au world actuellement ouvert (pas de "dernier visité" cross-session pour l'instant — `useUiStore.lastWorldId` est setté, peut servir plus tard pour un raccourci PWA).
+- **`world_memory` injecté** : Slice 0 ne crée pas de colonne `world_memory` sur `worlds` (V001 a une colonne `world_memory text` nullable mais pas exposée dans l'UI). Pour l'instant, le `ChatPanel` passe `worldQ.data?.description` comme world memory. À reclarifier en Slice 2.
+- **Pas de mock auth dans Playwright** : E2E couvre "rendu login + redirects". Le full chat flow est pilotable une fois V002 appliquée et un user connecté ; pas mocké pour ne pas dupliquer une couche de mock fragile.
+- **Mobile breakpoint pas piloté** : `mcp__Claude_in_Chrome__resize_window` n'a pas réduit le viewport interne sur cette instance (vérifié `window.innerWidth` resté à 1920). Les classes responsive sont posées côté code (`sm:hidden` / `hidden sm:inline-flex` / `md:grid-cols-[2fr_1fr]`). À piloter manuellement après B.1.
+
+### Phase B — actions user (5 min total)
+
+| # | Action | Où |
+|---|---|---|
+| B.1 | Appliquer `supabase/migrations/V002__slice_1_notes.sql` | Supabase dashboard → SQL editor (project `erlkawphavrznusabzok`) |
+| B.2 | Ajouter `OPENAI_API_KEY` aux secrets | Dashboard → Project Settings → Edge Functions → Secrets |
+| B.3 | Déployer Edge Function `llm-call` | Soit dashboard Edge Functions UI (uploader `supabase/functions/llm-call/index.ts`), soit CLI : `supabase functions deploy llm-call` (nécessite Docker + Supabase CLI installés) |
+| B.4 | Switch front sur OpenAI | Ajouter `VITE_LLM_PROVIDER=openai` à `.env.local` (et plus tard env Vercel) |
+| B.5 | Smoke test live | Pilote Chrome : créer une note, taper du texte, ouvrir le chat, envoyer un message, vérifier réponse. Tester aussi mobile breakpoint (DevTools responsive). |
+
+### Bloquant constaté en pilote
+
+Aucun — le code est sain, juste la table `notes` n'existe pas en DB tant que B.1 pas fait. Le UI affiche l'erreur PostgREST telle quelle.
+
+### Note sur `networkMode: 'always'`
+
+J'ai dû ajouter `networkMode: 'always'` au `QueryClient` parce que le navigator.onLine de Chrome déclarait l'app offline en présence du DevTools/extensions, ce qui mettait toutes les requêtes TanStack Query en `fetchStatus: 'paused'` indéfiniment. Avec `'always'`, les requêtes partent indépendamment du flag offline. Si on veut un vrai mode offline plus tard (cache + replay), il faudra reprendre cette config.
+
+---
+
+## État précédent (Slice 0)
 
 **Slice 0 livré et validé end-to-end le 2026-05-01.** Login + worlds CRUD + PWA scaffold + cycle dev/test (typecheck/lint/Vitest/Playwright/Chrome-pilot) opérationnel.
-
-**Slice 1 prêt à démarrer en autonomie** — voir [slice-1-plan.md](./slice-1-plan.md) qui détaille Phase A (Claude seul) et Phase B (5 min user).
 
 En cours côté user : Vercel deploy ([deploy.md](./deploy.md)).
 
@@ -55,7 +99,7 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 | Slice | Ce qui marche | Valeur validée |
 |---|---|---|
 | **0** ✅ | Login Supabase (magic link), créer/lister des "worlds" vides, déployé en PWA | La stack tient debout |
-| **1** ⭐ | **Quick capture (mobile-first) + Chat IA sur note** (markdown). Pas d'entités, pas de chapitres. | **Le concept central est-il utile ?** |
+| **1** ⭐ | **Quick capture (mobile-first) + Chat IA sur note** (markdown). Pas d'entités, pas de chapitres. Phase A code-complete 2026-05-01 ; Phase B en attente du user. | **Le concept central est-il utile ?** |
 | **2** | Entités simples (sans versioning) + tag d'entités sur une note (contexte du chat) | Apport du contexte structuré |
 | **3** | **Auto-extraction d'entités** dans note/chat + promotion note → entité | Cristallisation depuis brainstorm |
 | **4** | **Hiérarchie books/parts/chapters** + promotion note → chapitre (avec Tiptap riche) | Structure narrative |

@@ -1,50 +1,23 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { Session } from '@supabase/supabase-js';
+import { useState, type FormEvent } from 'react';
+import { Link } from '@tanstack/react-router';
 import { supabase } from '@/lib/supabase';
-import type { World } from './types';
+import { useSession } from '@/features/auth/session';
+import { useWorlds, useCreateWorld } from '@/lib/queries/worlds';
 
-interface Props {
-  session: Session;
-}
-
-export function WorldsScreen({ session }: Props) {
-  const [worlds, setWorlds] = useState<World[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+export function WorldsScreen() {
+  const session = useSession();
+  const worldsQ = useWorlds();
+  const createWorld = useCreateWorld();
   const [name, setName] = useState('');
 
-  const reload = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('worlds')
-      .select('id, name, description, created_at')
-      .order('created_at', { ascending: false });
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    setError(null);
-    setWorlds(data ?? []);
-  }, []);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  async function createWorld(e: FormEvent) {
+  async function onCreate(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
-    setCreating(true);
-    const { error } = await supabase.from('worlds').insert({
-      owner_id: session.user.id,
+    if (!name.trim() || session.status !== 'authed') return;
+    await createWorld.mutateAsync({
       name: name.trim(),
+      ownerId: session.session.user.id,
     });
-    setCreating(false);
-    if (error) {
-      setError(error.message);
-      return;
-    }
     setName('');
-    await reload();
   }
 
   async function signOut() {
@@ -56,9 +29,11 @@ export function WorldsScreen({ session }: Props) {
       <header className="flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Worlds</h1>
-          <p className="text-sm text-fg-muted">
-            Signed in as {session.user.email ?? session.user.id}
-          </p>
+          {session.status === 'authed' ? (
+            <p className="text-sm text-fg-muted">
+              Signed in as {session.session.user.email ?? session.session.user.id}
+            </p>
+          ) : null}
         </div>
         <button
           onClick={signOut}
@@ -69,7 +44,7 @@ export function WorldsScreen({ session }: Props) {
         </button>
       </header>
 
-      <form onSubmit={createWorld} className="flex gap-2" data-testid="create-world-form">
+      <form onSubmit={onCreate} className="flex gap-2" data-testid="create-world-form">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -79,42 +54,54 @@ export function WorldsScreen({ session }: Props) {
         />
         <button
           type="submit"
-          disabled={creating || !name.trim()}
+          disabled={createWorld.isPending || !name.trim()}
           className="bg-accent px-4 py-2 font-medium text-accent-fg disabled:opacity-50"
           data-testid="create-world-submit"
         >
-          {creating ? 'Creating…' : 'Create'}
+          {createWorld.isPending ? 'Creating…' : 'Create'}
         </button>
       </form>
 
-      {error ? (
+      {worldsQ.error ? (
         <p className="text-sm text-red-400" data-testid="worlds-error">
-          {error}
+          {worldsQ.error.message}
+        </p>
+      ) : null}
+      {createWorld.error ? (
+        <p className="text-sm text-red-400" data-testid="worlds-error">
+          {createWorld.error.message}
         </p>
       ) : null}
 
-      {worlds === null ? (
+      {worldsQ.isLoading ? (
         <p className="text-fg-muted">Loading…</p>
-      ) : worlds.length === 0 ? (
+      ) : worldsQ.data && worldsQ.data.length === 0 ? (
         <p className="text-fg-muted" data-testid="worlds-empty">
           No worlds yet. Create one above.
         </p>
-      ) : (
+      ) : worldsQ.data ? (
         <ul className="space-y-2" data-testid="worlds-list">
-          {worlds.map((w) => (
+          {worldsQ.data.map((w) => (
             <li
               key={w.id}
-              className="rounded-md border border-border bg-bg-panel px-4 py-3"
+              className="rounded-md border border-border bg-bg-panel"
               data-testid="world-item"
             >
-              <div className="font-medium">{w.name}</div>
-              {w.description ? (
-                <div className="text-sm text-fg-muted">{w.description}</div>
-              ) : null}
+              <Link
+                to="/worlds/$worldId"
+                params={{ worldId: w.id }}
+                className="block px-4 py-3 hover:bg-bg-subtle"
+                data-testid="world-link"
+              >
+                <div className="font-medium">{w.name}</div>
+                {w.description ? (
+                  <div className="text-sm text-fg-muted">{w.description}</div>
+                ) : null}
+              </Link>
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </main>
   );
 }

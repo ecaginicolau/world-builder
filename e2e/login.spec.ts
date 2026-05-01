@@ -14,3 +14,15 @@ test('login form accepts email input', async ({ page }) => {
   await email.fill('alice@example.com');
   await expect(email).toHaveValue('alice@example.com');
 });
+
+test('unauthenticated /worlds redirects to /login', async ({ page }) => {
+  await page.goto('/worlds');
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByTestId('login-form')).toBeVisible();
+});
+
+test('unauthenticated /worlds/:id/notes/:id redirects to /login', async ({ page }) => {
+  await page.goto('/worlds/00000000-0000-0000-0000-000000000000/notes/00000000-0000-0000-0000-000000000000');
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByTestId('login-form')).toBeVisible();
+});
