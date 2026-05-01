@@ -72,24 +72,33 @@ Chaque slice livre une app utilisable de bout en bout. On peut s'arrêter à n'i
 - [x] Représentation des champs dynamiques d'`entity_types` (jsonb + Zod côté TS)
 - [x] Slicing des migrations (table par slice)
 
-### Setup projet
+### Setup projet (Slice 0)
 - [x] Init Vite + React + TS + Tailwind (shadcn/ui à intégrer quand on a besoin de composants riches)
 - [x] Première migration Postgres (slice 0 : `worlds` + `user_settings` + RLS) — fichier `supabase/migrations/V001__slice_0_worlds.sql`
-- [x] Vitest + Playwright + ESLint configurés
+- [x] Migration appliquée sur Supabase cloud (project `erlkawphavrznusabzok`)
+- [x] `.env.local` renseigné (URL + anon key)
+- [x] Vitest + Playwright + ESLint configurés, Chromium installé
+- [x] `typecheck`, `lint`, `test` (6/6 unit), `test:e2e` (2/2) tous verts
+- [x] Pilotage Chrome via "Claude in Chrome" extension OK — login screen rendu live, console clean
 - [x] Cycle dev/test documenté → [dev-cycle.md](./dev-cycle.md)
-- [ ] Appliquer la migration sur le projet Supabase cloud (via SQL editor)
-- [ ] Renseigner `.env.local` (URL + anon key)
-- [ ] Tester login (magic link) + création de world end-to-end via Chrome
-- [ ] Configurer Vercel + variables d'env (deploy auto)
-- [ ] Installer Supabase CLI + Docker plus tard, quand on aura besoin des Edge Functions (Slice 1+)
+- [x] Guide deploy → [deploy.md](./deploy.md)
+- [ ] Login end-to-end avec un vrai email (manuel, user-side)
+- [ ] Test create-world piloté Chrome (post-login)
+- [ ] Configurer Vercel + variables d'env (cf. [deploy.md](./deploy.md))
+- [ ] Activer Google OAuth (session séparée)
+- [ ] Installer Supabase CLI + Docker quand on aura besoin des Edge Functions (Slice 1+)
 
 ## Prochaine action concrète
 
-Slice 0 scaffold est livré (Vite + React + TS + Tailwind + Supabase client + login + worlds CRUD + tests). Reste à finaliser :
+**Slice 0 scaffold = livré et validé localement.** Login screen + Worlds screen + tests + migration + dev/test cycle.
 
-1. Appliquer la migration sur Supabase cloud
-2. Tester login + création de world via le browser piloté
-3. Déployer sur Vercel
+Pour clôturer Slice 0 :
+
+1. Toi → tester un login avec ton vrai email à http://localhost:5173 (la magic link arrivera dans ta boîte)
+2. Une fois logué → je pilote Chrome pour créer un world et vérifier que ça arrive en DB
+3. Toi → suivre [deploy.md](./deploy.md) pour le premier deploy Vercel
+
+Puis on attaque **Slice 1** (quick capture mobile + chat IA sur note).
 
 ## Docs détaillées
 
