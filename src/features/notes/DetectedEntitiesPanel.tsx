@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntities, useCreateEntity } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
 import { logNotePromotion } from '@/lib/queries/notePromotions';
@@ -43,16 +43,26 @@ export function DetectedEntitiesPanel({
 
   // Silent auto-tag: any matched candidate not already tagged → tag it.
   // For notes we mark pinnedManually=false (AUTO badge); chapters ignore it.
+  //
+  // Refs are used so the effect only re-fires when `candidates` change (i.e.
+  // a new extraction came in). If we depended on `source` or `taggedIds`,
+  // every untag would trigger a re-render → re-fire the effect → re-tag the
+  // very entity the user just untagged → infinite loop.
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  const taggedIdsRef = useRef(taggedIds);
+  taggedIdsRef.current = taggedIds;
+
   useEffect(() => {
     if (session.status !== 'authed') return;
     if (status !== 'success') return;
-    if (source.isLoading) return;
+    if (sourceRef.current.isLoading) return;
     for (const c of candidates) {
       if (!c.matchedEntityId) continue;
-      if (taggedIds.has(c.matchedEntityId)) continue;
-      source.tag(c.matchedEntityId, { pinnedManually: false });
+      if (taggedIdsRef.current.has(c.matchedEntityId)) continue;
+      sourceRef.current.tag(c.matchedEntityId, { pinnedManually: false });
     }
-  }, [candidates, status, source, taggedIds, session]);
+  }, [candidates, status, session]);
 
   async function onCreateAndTag(c: EntityCandidate) {
     if (session.status !== 'authed') return;

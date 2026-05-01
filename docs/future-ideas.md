@@ -6,6 +6,18 @@ Idées notées au fil des discussions, à considérer après le v1. Complète la
 
 - ~~Auto-highlight / auto-extraction d'entités~~ → désormais in-scope (cf. [product-design.md](./product-design.md) §5.3).
 
+## Auto-tag respecte les untag user
+
+Aujourd'hui (Slice 3 → 4.y) : quand l'auto-extract trouve un match sur une entity existante, on l'auto-tague (`pinned_manually=false` pour les notes). Si l'user untag, c'est OK pour le moment courant. Mais à la prochaine extraction (le user re-édite la note) → l'effet d'auto-tag voit que l'entity est dans candidates ET pas dans taggedIds → re-tag.
+
+**Fix proposé** : persister la liste des "user explicitly unlinked" en DB ou localStorage, par `(parent, entity)`. L'auto-tag effect saute les entries dans cette liste. Re-tag manuel via le picker enlève l'entry.
+
+DB option : ajouter colonne `user_unlinked_at timestamptz` à `note_entities` (mais la ligne est supprimée au untag…) — donc plutôt une nouvelle table `user_excluded_entity_links (parent_kind, parent_id, entity_id, owner_id, excluded_at)`.
+
+LocalStorage option : par-user simple, perd au reset.
+
+Décision pour v1.x : laisser le comportement actuel + petit message UI ("Auto-tagged from text. Untag again if you want it gone.") puisque l'extraction tourne rarement (debounced 5s) et l'user qui untag s'en rendra compte.
+
 ## Améliorations highlight in-editor (post-3.y)
 
 La v1 du highlight (Slice 3.y) sera regex-naïve : matche `entity.name` exact (et `entity.aliases` exact). À explorer ensuite :
