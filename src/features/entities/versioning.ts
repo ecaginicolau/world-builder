@@ -1,7 +1,7 @@
 import type { EntityVersion, FieldDef, FieldValue, Snapshot } from './types';
 import type { Chapter } from '@/features/chapters/types';
 import type { TimelineEvent } from '@/features/timeline/types';
-import { INIT_RANK } from '@/lib/ranks';
+import { INIT_RANK, rankBetween } from '@/lib/ranks';
 
 export const CURRENT_RANK_SENTINEL = '~current';
 
@@ -85,6 +85,130 @@ export function versionLabelForRank(
   }
   if (before) return `after ${rankPickerLabel(before)}`;
   return 'before timeline start';
+}
+
+/**
+ * A point on the entity timeline rail: "initial" (before any chapter/event),
+ * "after a chapter/event" (resolves to the state right at the end of that
+ * item's window), or "current" (latest known state). Used by the rail UI in
+ * the entity detail screen.
+ */
+export type TimelineAnchor =
+  | { kind: 'init' }
+  | { kind: 'after'; item: TimelineRankItem }
+  | { kind: 'current' };
+
+/** Stable id for an anchor — usable as React key and for cursor state. */
+export function anchorId(a: TimelineAnchor): string {
+  if (a.kind === 'init') return '@init';
+  if (a.kind === 'current') return CURRENT_RANK_SENTINEL;
+  return a.item.rank;
+}
+
+export function buildAnchors(items: TimelineRankItem[]): TimelineAnchor[] {
+  return [
+    { kind: 'init' as const },
+    ...items.map((item) => ({ kind: 'after' as const, item })),
+    { kind: 'current' as const },
+  ];
+}
+
+export function anchorLabel(a: TimelineAnchor): string {
+  if (a.kind === 'init') return 'initial';
+  if (a.kind === 'current') return '— current —';
+  return `after ${rankPickerLabel(a.item)}`;
+}
+
+/**
+ * Resolve the entity state *at* a given anchor. For "after X", returns the
+ * latest version whose `valid_from_rank` is strictly less than the next
+ * timeline item's rank (so post-X updates at fractional ranks are included,
+ * but the next chapter's own version isn't).
+ */
+export function resolveStateAtAnchor(
+  anchor: TimelineAnchor,
+  items: TimelineRankItem[],
+  versions: EntityVersion[],
+): EntityVersion | null {
+  if (anchor.kind === 'current') return resolveStateAtRank(versions, CURRENT_RANK_SENTINEL);
+  if (anchor.kind === 'init') {
+    let best: EntityVersion | null = null;
+    for (const v of versions) {
+      if (v.valid_from_rank === INIT_RANK) {
+        if (!best || v.valid_from_rank > best.valid_from_rank) best = v;
+      }
+    }
+    return best;
+  }
+  let nextRank: string | null = null;
+  for (const it of items) {
+    if (it.rank > anchor.item.rank && (nextRank === null || it.rank < nextRank)) {
+      nextRank = it.rank;
+    }
+  }
+  let best: EntityVersion | null = null;
+  for (const v of versions) {
+    if (nextRank !== null && v.valid_from_rank >= nextRank) continue;
+    if (!best || v.valid_from_rank > best.valid_from_rank) best = v;
+  }
+  return best;
+}
+
+/**
+ * Group existing versions by which anchor they "live under". A version with
+ * `valid_from_rank == INIT_RANK` lives under `init`; one with rank > some
+ * timeline item X (and < next item) lives under "after X"; one with
+ * `valid_from_rank == X.rank` (legacy data) also lives under "after X" so it
+ * doesn't disappear from the rail.
+ */
+export function versionsByAnchor(
+  items: TimelineRankItem[],
+  versions: EntityVersion[],
+): Map<string, EntityVersion[]> {
+  const map = new Map<string, EntityVersion[]>();
+  const sortedItems = items.slice().sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0));
+  for (const v of versions) {
+    let key: string;
+    if (v.valid_from_rank === INIT_RANK) {
+      key = '@init';
+    } else {
+      let owner: TimelineRankItem | null = null;
+      for (const it of sortedItems) {
+        if (it.rank <= v.valid_from_rank) {
+          if (!owner || it.rank > owner.rank) owner = it;
+        }
+      }
+      key = owner ? owner.rank : '@init';
+    }
+    const arr = map.get(key) ?? [];
+    arr.push(v);
+    map.set(key, arr);
+  }
+  return map;
+}
+
+/**
+ * Compute a fractional rank strictly between `chapterRank` and the next existing
+ * rank (in either the timeline or the entity's existing versions). Used when
+ * applying an update that takes effect *after* a chapter — the new state
+ * resolves for any cursor `> chapterRank` without colliding with an existing
+ * version at the same rank.
+ */
+export function rankAfterChapter(
+  chapterRank: string,
+  timelineItems: TimelineRankItem[],
+  entityVersions: EntityVersion[],
+): string {
+  let upper: string | null = null;
+  for (const it of timelineItems) {
+    if (it.rank > chapterRank && (upper === null || it.rank < upper)) upper = it.rank;
+  }
+  for (const v of entityVersions) {
+    if (v.valid_from_rank > chapterRank && (upper === null || v.valid_from_rank < upper)) {
+      upper = v.valid_from_rank;
+    }
+  }
+  return rankBetween(chapterRank, upper);
 }
 
 /**

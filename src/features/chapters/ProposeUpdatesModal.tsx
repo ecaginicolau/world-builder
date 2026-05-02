@@ -4,7 +4,8 @@ import { useSession } from '@/features/auth/session';
 import { useEntities } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
 import { useChapterParticipants } from '@/lib/queries/chapterParticipants';
-import { useChapter } from '@/lib/queries/chapters';
+import { useChapter, useChaptersByWorld } from '@/lib/queries/chapters';
+import { useEvents } from '@/lib/queries/events';
 import { useWorld } from '@/lib/queries/worlds';
 import { useUserSettings } from '@/lib/queries/userSettings';
 import { useCreateEntityVersion, ensureInitVersion } from '@/lib/queries/entityVersions';
@@ -12,7 +13,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { entityVersionsKeys } from '@/lib/queries/entityVersions';
 import { supabase } from '@/lib/supabase';
 import { logRun } from '@/lib/queries/runs';
-import { resolveStateAtRank, formatFieldValue } from '@/features/entities/versioning';
+import {
+  buildRankPickerItems,
+  rankAfterChapter,
+  resolveStateAtRank,
+  formatFieldValue,
+} from '@/features/entities/versioning';
 import { getProposer, type Proposal, type ProposalEntityCard } from '@/lib/llm/proposals';
 import { htmlToPlainText } from '@/lib/html';
 import type { Entity, EntityVersion, FieldDef, Snapshot } from '@/features/entities/types';
@@ -45,8 +51,15 @@ export function ProposeUpdatesModal({
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
   const participantsQ = useChapterParticipants(chapterId);
+  const chaptersQ = useChaptersByWorld(worldId);
+  const eventsQ = useEvents(worldId);
   const settingsQ = useUserSettings();
   const createVersion = useCreateEntityVersion();
+
+  const timelineItems = useMemo(
+    () => buildRankPickerItems(chaptersQ.data ?? [], eventsQ.data ?? []),
+    [chaptersQ.data, eventsQ.data],
+  );
 
   const [phase, setPhase] = useState<'idle' | 'loading' | 'review' | 'error'>('idle');
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -159,11 +172,16 @@ export function ProposeUpdatesModal({
       });
       const current = resolveStateAtRank(all, chapterQ.data.chronological_rank);
       const merged: Snapshot = { ...(current?.snapshot ?? {}), ...p.fieldChanges };
+      const newRank = rankAfterChapter(
+        chapterQ.data.chronological_rank,
+        timelineItems,
+        all,
+      );
       await createVersion.mutateAsync({
         entityId: p.entityId,
         worldId,
         ownerId: session.session.user.id,
-        validFromRank: chapterQ.data.chronological_rank,
+        validFromRank: newRank,
         snapshot: merged,
         sourceChapterId: chapterId,
         noteExcerpt: p.justification,

@@ -10,14 +10,19 @@ import { useConfirm } from '@/lib/useConfirm';
 import { chipBgFromHex, chipBorderFromHex, resolveColor } from '@/lib/entityColors';
 import {
   CURRENT_RANK_SENTINEL,
+  anchorId,
+  anchorLabel,
+  buildAnchors,
   buildRankPickerItems,
   diffSnapshots,
   formatFieldValue,
-  rankPickerLabel,
-  resolveStateAtRank,
+  resolveStateAtAnchor,
   versionLabelForRank,
+  versionsByAnchor,
+  type TimelineAnchor,
 } from './versioning';
 import { NewVersionModal } from './NewVersionModal';
+import { INIT_RANK } from '@/lib/ranks';
 import type { EntityVersion, FieldDef, Snapshot } from './types';
 
 export function EntityDetailScreen() {
@@ -35,7 +40,7 @@ export function EntityDetailScreen() {
 
   const [name, setName] = useState<string>('');
   const [aliasInput, setAliasInput] = useState('');
-  const [rankCursor, setRankCursor] = useState<string>(CURRENT_RANK_SENTINEL);
+  const [cursorId, setCursorId] = useState<string>(CURRENT_RANK_SENTINEL);
   const [newVersionOpen, setNewVersionOpen] = useState(false);
 
   useEffect(() => {
@@ -52,9 +57,21 @@ export function EntityDetailScreen() {
     [versionsQ.data],
   );
 
+  const anchors = useMemo(() => buildAnchors(rankItems), [rankItems]);
+
+  const versionsAt = useMemo(
+    () => versionsByAnchor(rankItems, sortedVersions),
+    [rankItems, sortedVersions],
+  );
+
+  const currentAnchor = useMemo<TimelineAnchor>(
+    () => anchors.find((a) => anchorId(a) === cursorId) ?? { kind: 'current' },
+    [anchors, cursorId],
+  );
+
   const stateAtCursor = useMemo(
-    () => resolveStateAtRank(sortedVersions, rankCursor),
-    [sortedVersions, rankCursor],
+    () => resolveStateAtAnchor(currentAnchor, rankItems, sortedVersions),
+    [currentAnchor, rankItems, sortedVersions],
   );
 
   if (entityQ.isLoading || !entityQ.data) {
@@ -113,7 +130,7 @@ export function EntityDetailScreen() {
   }
 
   return (
-    <main className="mx-auto flex h-full max-w-3xl flex-col gap-6 overflow-y-auto px-6 py-6">
+    <main className="mx-auto flex h-full max-w-5xl flex-col gap-6 overflow-y-auto px-6 py-6">
       <header className="space-y-2">
         <Link
           to="/worlds/$worldId/entities"
@@ -219,88 +236,51 @@ export function EntityDetailScreen() {
         </div>
       </section>
 
-      <section className="space-y-3" data-testid="state-section">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-fg-muted">Show state as of:</span>
-            <select
-              value={rankCursor}
-              onChange={(e) => setRankCursor(e.target.value)}
-              className="bg-bg-subtle px-2 py-1 text-sm"
-              data-testid="rank-cursor"
+      <section
+        className="grid gap-6 lg:grid-cols-[260px_1fr]"
+        data-testid="state-section"
+      >
+        <TimelineRail
+          anchors={anchors}
+          cursorId={cursorId}
+          onSelect={setCursorId}
+          versionsAt={versionsAt}
+          totalVersions={sortedVersions.length}
+        />
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold" data-testid="state-anchor-label">
+              {anchorLabel(currentAnchor)}
+            </h2>
+            <button
+              type="button"
+              onClick={() => setNewVersionOpen(true)}
+              className="bg-accent px-3 py-1 text-sm font-medium text-accent-fg"
+              data-testid="new-version"
             >
-              <option value={CURRENT_RANK_SENTINEL}>— current —</option>
-              {rankItems.map((item) => (
-                <option key={item.rank} value={item.rank}>
-                  {rankPickerLabel(item)}
-                </option>
-              ))}
-            </select>
+              + New version…
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setNewVersionOpen(true)}
-            className="bg-accent px-3 py-1 text-sm font-medium text-accent-fg"
-            data-testid="new-version"
-          >
-            + New version…
-          </button>
+          <FieldsCard fields={fields} snapshot={stateAtCursor?.snapshot ?? {}} />
+          {stateAtCursor ? (
+            <p className="text-xs text-fg-muted" data-testid="state-source">
+              From version {versionLabelForRank(stateAtCursor.valid_from_rank, rankItems)}
+              {' · '}
+              {new Date(stateAtCursor.created_at).toLocaleDateString()}
+            </p>
+          ) : (
+            <p className="text-xs text-fg-muted" data-testid="state-empty">
+              No version applies at this point. Create one to start tracking state.
+            </p>
+          )}
+          {currentAnchor.kind === 'after' || currentAnchor.kind === 'init' ? (
+            <AnchorVersionList
+              versions={versionsAt.get(anchorId(currentAnchor)) ?? []}
+              allVersions={sortedVersions}
+              rankItems={rankItems}
+            />
+          ) : null}
         </div>
-        <FieldsCard fields={fields} snapshot={stateAtCursor?.snapshot ?? {}} />
-        {stateAtCursor ? (
-          <p className="text-xs text-fg-muted" data-testid="state-source">
-            From version {versionLabelForRank(stateAtCursor.valid_from_rank, rankItems)}
-          </p>
-        ) : (
-          <p className="text-xs text-fg-muted" data-testid="state-empty">
-            No version applies at this point. Create one to start tracking state.
-          </p>
-        )}
-      </section>
-
-      <section className="space-y-2" data-testid="versions-section">
-        <h2 className="text-sm font-semibold text-fg-muted">
-          Versions ({sortedVersions.length})
-        </h2>
-        {sortedVersions.length === 0 ? (
-          <p className="text-sm text-fg-muted">
-            No versions yet. The first "New version" creates an implicit v0 + your version.
-          </p>
-        ) : (
-          <ul className="space-y-1">
-            {sortedVersions.map((v, idx) => {
-              const prev = idx > 0 ? sortedVersions[idx - 1].snapshot : {};
-              const changed = diffSnapshots(prev as Snapshot, v.snapshot);
-              return (
-                <li
-                  key={v.id}
-                  className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel px-3 py-2 text-sm"
-                  data-testid="version-row"
-                >
-                  <div className="flex justify-between">
-                    <span>{versionLabelForRank(v.valid_from_rank, rankItems)}</span>
-                    <span className="text-xs text-fg-muted">
-                      {new Date(v.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                  {changed.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 text-xs text-fg-muted">
-                      {changed.map((k) => (
-                        <span
-                          key={k}
-                          className="rounded-md bg-bg-subtle px-1.5 py-0.5"
-                          data-testid="version-diff-chip"
-                        >
-                          {k}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </section>
 
       <NewVersionModal
@@ -312,9 +292,145 @@ export function EntityDetailScreen() {
         currentSnapshot={stateAtCursor?.snapshot ?? {}}
         rankItems={rankItems}
         existingVersions={sortedVersions}
-        defaultRank={rankCursor === CURRENT_RANK_SENTINEL ? null : rankCursor}
+        defaultRank={defaultRankFromAnchor(currentAnchor)}
       />
     </main>
+  );
+}
+
+function defaultRankFromAnchor(a: TimelineAnchor): string | null {
+  if (a.kind === 'init') return INIT_RANK;
+  if (a.kind === 'after') return a.item.rank;
+  return null;
+}
+
+interface TimelineRailProps {
+  anchors: TimelineAnchor[];
+  cursorId: string;
+  onSelect: (id: string) => void;
+  versionsAt: Map<string, EntityVersion[]>;
+  totalVersions: number;
+}
+
+function TimelineRail({
+  anchors,
+  cursorId,
+  onSelect,
+  versionsAt,
+  totalVersions,
+}: TimelineRailProps) {
+  return (
+    <aside
+      className="lg:sticky lg:top-6 lg:self-start"
+      data-testid="timeline-rail"
+    >
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-muted">
+        Timeline ({totalVersions} version{totalVersions === 1 ? '' : 's'})
+      </h2>
+      <ol className="relative space-y-0.5 border-l border-border pl-3">
+        {anchors.map((a) => {
+          const id = anchorId(a);
+          const isActive = id === cursorId;
+          const versions = versionsAt.get(id) ?? [];
+          const hasVersion = versions.length > 0;
+          const isCurrent = a.kind === 'current';
+          return (
+            <li key={id} className="relative">
+              <span
+                className={`absolute -left-[17px] top-2 h-2.5 w-2.5 rounded-full border ${
+                  hasVersion
+                    ? 'border-accent bg-accent'
+                    : isActive
+                    ? 'border-accent bg-bg'
+                    : 'border-border bg-bg'
+                }`}
+                aria-hidden="true"
+              />
+              <button
+                type="button"
+                onClick={() => onSelect(id)}
+                className={`block w-full rounded-md px-2 py-1 text-left text-xs transition-colors ${
+                  isActive
+                    ? 'bg-accent/15 text-fg ring-1 ring-accent/40'
+                    : 'text-fg-muted hover:bg-bg-subtle hover:text-fg'
+                }`}
+                data-testid="timeline-anchor"
+                data-anchor-id={id}
+                data-active={isActive ? 'true' : 'false'}
+              >
+                <span className={isCurrent ? 'italic' : ''}>{anchorLabel(a)}</span>
+                {hasVersion ? (
+                  <span className="ml-1 text-[10px] text-fg-muted">
+                    · {versions.length} update{versions.length === 1 ? '' : 's'}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </aside>
+  );
+}
+
+function AnchorVersionList({
+  versions,
+  allVersions,
+  rankItems,
+}: {
+  versions: EntityVersion[];
+  allVersions: EntityVersion[];
+  rankItems: ReturnType<typeof buildRankPickerItems>;
+}) {
+  if (versions.length === 0) {
+    return (
+      <p className="text-xs text-fg-muted" data-testid="anchor-no-updates">
+        No updates anchored here yet.
+      </p>
+    );
+  }
+  const indexInAll = (v: EntityVersion) =>
+    allVersions.findIndex((x) => x.id === v.id);
+  return (
+    <ul className="space-y-1" data-testid="anchor-versions">
+      {versions.map((v) => {
+        const idx = indexInAll(v);
+        const prev = idx > 0 ? (allVersions[idx - 1].snapshot as Snapshot) : ({} as Snapshot);
+        const changed = diffSnapshots(prev, v.snapshot as Snapshot);
+        return (
+          <li
+            key={v.id}
+            className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel px-3 py-2 text-sm"
+            data-testid="version-row"
+          >
+            <div className="flex justify-between">
+              <span>{versionLabelForRank(v.valid_from_rank, rankItems)}</span>
+              <span className="text-xs text-fg-muted">
+                {new Date(v.created_at).toLocaleDateString()}
+              </span>
+            </div>
+            {changed.length > 0 ? (
+              <div className="flex flex-wrap gap-1 text-xs text-fg-muted">
+                {changed.map((k) => (
+                  <span
+                    key={k}
+                    className="rounded-md bg-bg-subtle px-1.5 py-0.5"
+                    data-testid="version-diff-chip"
+                  >
+                    {k}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {v.note_excerpt ? (
+              <p className="mt-0.5 line-clamp-2 text-xs italic text-fg-muted">
+                {v.note_excerpt}
+              </p>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

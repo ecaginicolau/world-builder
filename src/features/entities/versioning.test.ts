@@ -4,6 +4,7 @@ import {
   buildRankPickerItems,
   coerceFieldValue,
   diffSnapshots,
+  rankAfterChapter,
   resolveStateAtRank,
   versionLabelForRank,
 } from './versioning';
@@ -149,6 +150,42 @@ describe('buildRankPickerItems', () => {
     expect(items.map((i) => i.rank)).toEqual(['03', '07']);
     expect(items[0].kind).toBe('event');
     expect(items[1].kind).toBe('chapter');
+  });
+});
+
+describe('rankAfterChapter', () => {
+  const item = (rank: string): { kind: 'chapter'; rank: string; title: string | null } => ({
+    kind: 'chapter',
+    rank,
+    title: null,
+  });
+
+  it('returns a rank strictly between chapter and the next timeline item', () => {
+    const items = [item('05'), item('07')];
+    const r = rankAfterChapter('05', items, []);
+    expect(r > '05').toBe(true);
+    expect(r < '07').toBe(true);
+  });
+
+  it('uses an existing later version as upper bound when smaller than next timeline item', () => {
+    const items = [item('05'), item('09')];
+    const existing = [v('x', '07')];
+    const r = rankAfterChapter('05', items, existing);
+    expect(r > '05').toBe(true);
+    expect(r < '07').toBe(true);
+  });
+
+  it('produces a fresh rank on repeated calls when the previous result is in the versions list', () => {
+    const items = [item('05'), item('09')];
+    const r1 = rankAfterChapter('05', items, []);
+    const r2 = rankAfterChapter('05', items, [v('x', r1)]);
+    expect(r2 > '05').toBe(true);
+    expect(r2 < r1).toBe(true);
+  });
+
+  it('uses an open upper bound when nothing follows the chapter', () => {
+    const r = rankAfterChapter('05', [item('05')], []);
+    expect(r > '05').toBe(true);
   });
 });
 

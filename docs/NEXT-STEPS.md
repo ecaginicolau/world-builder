@@ -2,6 +2,26 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-02 AM, session brainstorm post-v1)
+
+Cette session est principalement un **brainstorm** sur la nav et l'expansion canonique. Pas de slice complète à shipper, mais 2 quick fixes ont atterri sur le versioning des entities + un doc de chantier détaillé.
+
+### Doc de chantier en cours
+
+**[docs/post-v1-nav-canon.md](./post-v1-nav-canon.md)** ⭐ — chunks (a) appbar / (b) entity types relégués / (c) page entities enrichie / (d) event upgrade. Décisions tranchées + tasks détaillées + critères de validation. Vivant — à compléter au fil du brainstorm.
+
+### Livré cette session
+
+- **Bug fix** : accept de "Propose updates" créait des `entity_versions` au rank exact du chapitre → collisions silencieuses. Nouveau helper `rankAfterChapter` ([versioning.ts:96](../src/features/entities/versioning.ts:96)), wired dans [ProposeUpdatesModal.tsx:178](../src/features/chapters/ProposeUpdatesModal.tsx:178). Sémantique secondaire : versions désormais labellées "after Chapter X". 4 tests Vitest.
+- **UX TimelineRail** : remplacement du `<select>` rank cursor par une sidebar verticale d'anchors cliquables (initial → after item 1 → … → current). Layout `lg:grid-cols-[260px_1fr]`. Helpers `TimelineAnchor`, `buildAnchors`, `resolveStateAtAnchor`, `versionsByAnchor` dans `versioning.ts`. Validé visuellement live sur Iria.
+- **Migration V011 — NE PAS APPLIQUER** : [V011__slice_7x_entity_version_chapter_version.sql](../supabase/migrations/V011__slice_7x_entity_version_chapter_version.sql) est rendue obsolète par le pivot V3 du brainstorm. Le fichier reste sur le disque pour audit ; il ne touchera jamais la DB. La bonne migration sera V012 dans le chunk (d), qui ajoute `source_event_id` et drop la dimension chapter-as-source.
+
+### À reprendre dans une prochaine session
+
+Voir l'**ordre suggéré** dans [post-v1-nav-canon.md](./post-v1-nav-canon.md#ordre-suggéré-des-sessions-futures). En résumé : (a) → (b) → polish proposals (V011 + filtre stale) → (c) → (d).
+
+---
+
 ## Et après ? (post-v1)
 
 V1 = slices 0 → 8 toutes livrées. Plus de slice numérotée prévue dans le plan original. Pour la suite, les chantiers candidats se trouvent dans [docs/future-ideas.md](./future-ideas.md). En vrac, ce qui a le plus de valeur perçue (à re-prioriser en début de session future) :
