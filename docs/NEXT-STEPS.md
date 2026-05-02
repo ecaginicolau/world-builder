@@ -2,6 +2,129 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-02 soirée, chunk (d.x) post-validation iterations livré)
+
+**Itérations UX/data sur (d) suite à validation live par le user. V013 appliquée. 4 paquets livrés.**
+
+Voir **[docs/demo/slice-d-x-iterations.md](./demo/slice-d-x-iterations.md)** pour le walkthrough.
+
+### Migration V013 (appliquée)
+
+- DROP du trigger `entity_versions_no_update` (entity_versions devient updateable)
+- ADD policies RLS owner-scoped UPDATE + DELETE sur `entity_versions`
+- ADD unique partial `entity_versions_per_event ON (entity_id, source_event_id) WHERE source_event_id IS NOT NULL` — au plus 1 version par (entity, event)
+
+### Paquet 1 — Chapter reordering dans BookDetailScreen
+
+Manquait depuis Slice 4 (jamais livré). Boutons ▲▼ ajoutés à gauche de chaque row chapter dans les `PartSection`, dispatch sur `useUpdateChapter({readingRank})` via les helpers `rankForMoveUp/Down(ranks: string[])`. Sort client-side pour bypass la collation case-insensitive Postgres (cf. bug Slice 7). `useUpdateChapter` étendu avec `readingRank?: string`.
+
+### Paquet 2 — Editor EventScreen aligné sur NoteEditor
+
+Le Tiptap maison de l'EventScreen ne déléguait pas le focus au click sur la zone et n'avait pas de hauteur min — UX cassée. Remplacé par le composant partagé `NoteEditor` (forwardRef + autosave debounce 400ms + entity highlights live + `min-h-[40vh]`). Sémantique préservée : autosave écrit `events.description_html` + `events.description` (plain) en parallèle.
+
+### Paquet 3 — Autosave silencieux sur Manual edit + 📌 Snapshot
+
+Avant : éditer une version `manual_edit` → banner jaune "Unsaved manual edits" + Save → nouvelle row à chaque correction. Trop verbeux pour les typos.
+
+Après :
+- **Draft (v0)** : autosave silencieux dans la même row (inchangé).
+- **Manual edit (vN)** : autosave silencieux dans la même row (NEW). Banner haut du panel = "Editing in place · autosave on · 📌 Snapshot". Le bouton fork la row courante en nouvelle `manual_edit` (auto-final), permet de garder un point de retour avant de continuer à éditer.
+- **Upscale (vN)** : comportement inchangé (banner jaune + Save as new version) → préserve le texte LLM original.
+
+Wiring : `ChapterScreen.isEditingDraft` renommé `isEditableInPlace` (true pour `draft` ET `manual_edit`). Nouveau `onSnapshotManualEdit` lit `editorRef.getHTML()` synchroneusement pour bypasser le debounce. `VersionsPanel` reçoit `showSnapshotButton` + `onSnapshot` + `snapshotPending`.
+
+### Paquet 4 — entity_versions per-field editable in place (BIG)
+
+**Modèle delta** : chaque entity_version stocke uniquement les champs explicitement modifiés à son anchor. La résolution walk per-field — chaque champ remonte la timeline indépendamment, héritant de la dernière version qui l'a set.
+
+Avant : propose-canon mergeait le snapshot courant avec les diffs LLM → chaque version dupliquait les fields inchangés. Pas d'edit in place. "— current —" anchor redondant avec "after dernier event".
+
+Après :
+- `useUpsertEntityField({entityId, eventId|null, fieldName, value, validFromRank})` — INSERT-then-fallback-UPDATE sur conflit unique (race-safe pour les blur handlers parallèles). `useResetEntityField` qui delete la row si snapshot becomes empty et event-anchored (init reste toujours).
+- Nouveaux helpers `resolveSnapshotAtRank(versions, rank, fields)` (Map field → {value, source}), `resolveSnapshotMapAtRank` (flat record), `resolveSnapshotAtAnchor` (avec next-rank upper bound). Drop de `rankAfterEvent` (devenu inutile avec l'unique partial). Drop du `current` anchor de `buildAnchors`.
+- ProposeUpdatesModal funnel — stocke direct `diff.fieldChanges` (plus de merge). Versions deviennent vraiment des deltas.
+- EntityDetailScreen refonte : `FieldsEditor` inline avec autosave on blur, hint italique `(inherited from initial / earlier event / never set)`, bouton ↺ reset uniquement quand le field est explicitement set au current anchor. Default cursor = dernier anchor (current view) via `cursorId: null` + lazy fallback. AnchorVersionList et NewVersionModal supprimés.
+- Consumers (ChapterScreen upscale entity cards, ReaderChapterScreen popup, EntitiesScreen inline preview) → tous switchent `resolveStateAtRank(...)?.snapshot[f]` → `resolveSnapshotMapAtRank(versions, rank, fields)[f]`.
+
+### Validation
+
+- typecheck ✓ · lint 0 erreur (1 warning pré-existant) · 97 Vitest ✓ (10 nouveaux : per-field walk, anchor windowing, init-only fallback) · build prod ✓
+- Smoke Chrome live OpenAI sur Smoke Test World :
+  - Chapter "Le sermon des cendres" créé via le form first-event-required, reorder avec les ▲▼ → Chapter 3 "test" remonté en 2.
+  - EventScreen : click central focus l'éditeur, frappe live highlight les entities (Vieille Forteresse, Maitre Sorn, Iria), reload → texte persisté.
+  - ChapterScreen : édit v2 manual_edit → pas de banner, count Versions stable. Click 📌 Snapshot → Versions (9) → (10), nouvelle row auto-sélectionnée.
+  - "Propose canon" sur Confrontation → 2 events proposés (`Sorn brise le bras d'Iria`, `Edran reste impassible`) → Accept all → events créés et liés, badge `NO EVENTS LINKED` disparaît.
+  - EntityDetailScreen Iria : default cursor = "after Découverte du messager mort". Click initial → set bio="Jeune femme intrépide" → 1 version créée. Click "after Maitre Sorn prêche" → set age=21 → 2ᵉ version (delta `{age: 21}` uniquement). Naviguer vers anchor postérieur → `age (inherited from earlier event) · 21`, `bio (inherited from initial)`. Naviguer vers anchor antérieur → `age (never set)` (pas de leak en arrière). ↺ reset disponible uniquement quand explicitement set.
+
+### Décisions tranchées (d.x)
+
+- **Hint visuel pour les valeurs héritées** = italique + opacité réduite + `(inherited from X)` en suffix. Discret, suffisant.
+- **"— current —" anchor** = supprimé, redondant avec le dernier event anchor depuis le pivot canon.
+- **Init v0** = éditable librement (important si on ajoute des champs au type).
+- **`note_excerpt`** = pas touché lors d'un edit manuel (la justif LLM reste comme trace, sera écrasée au prochain propose-canon sur le même event si présent).
+- **Race-safe upsert** = INSERT-then-UPDATE-on-conflict côté client (pas de SQL function, pas de PostgREST `.upsert()` qui ne supporte pas bien les partial unique indexes).
+- **Per-field walk dans 1 fonction** = simpler que stocker des "snapshots complets" + checksum diff. Coût : O(versions × fields) par résolution, négligeable au scale auteur (≤200 entities, ≤50 versions chacune).
+- **Pas de "Snapshot" sur draft v0** = le draft EST l'espace de travail. Snapshoter une version brouillon n'a pas de sens, l'user fork via Upscale ou via la première version Manual edit (fork au premier edit d'un upscale).
+
+### À reprendre dans une prochaine session — point d'entrée
+
+**Vision v2 brainstormée 2026-05-02 PM :** intégration IA externe en 2 slices indépendantes. Cf. § "Vision v2" ci-dessous.
+
+- **Slice 1 (figée)** : Local LLM provider — swap des 4 tâches LLM (extract, proposals, upscale, summaries) vers un endpoint OpenAI-compat (Ollama / LM Studio / etc.) browser-direct. Toggle global + per-task model. Spec complète : **[docs/post-v1-local-llm.md](./post-v1-local-llm.md)**. Migration V014.
+- **Slice 2a (figée)** : MCP server exposant World Builder. ~17 reads + ~28 writes + 4 intents. Auth = service role local. Logging = nouvelle table `agent_actions` (writes only). Distribution = `packages/mcp-server` workspace, `npx world-builder-mcp` pour Claude Desktop. Migration V015. Spec complète : **[docs/post-v1-mcp-server.md](./post-v1-mcp-server.md)**.
+- **Slice 2b (figée)** : agents qui consomment le MCP. Scope = 2b.1 (Drafting Agent V1/V2/V3) + 2b.2 (4 rôles via Claude Desktop Projects : Drafter, Continuity Checker, World Expander, Editor). Slice principalement documentaire (3 docs `docs/agents/*`) + tuning itératif de `get_writing_guide`. Aucune migration. Spec complète : **[docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md)**.
+
+Candidats post-(d.x) toujours valides, à reprioriser après slice 1/2 :
+- **Propose updates direct depuis EventScreen** (pas via le funnel chapter) — pour le canon side-of-the-house pur.
+- **Re-analysis intelligente** dans le funnel : passer au LLM les events déjà liés + leurs diffs déjà acceptés pour qu'il propose UNIQUEMENT du nouveau (à la place du current "skip events already in canon" qui est plus grossier).
+- **Auto-create entities** : autoriser le LLM à proposer des nouvelles entities dans le funnel (insert entities → events → versions séquentiel).
+- **dnd-kit reorder** sur EventsCoveredPanel, TimelineScreen, BookDetailScreen — quand on dépassera 10+ items, les boutons ▲▼ deviendront pénibles.
+- **Versioning de chapter au publish** — figer le `final_version_id` au moment du publish.
+- **Stemming FR/EN dans search** — `worlds.search_lang` + switch `to_tsvector`.
+- **(post-slice 1) Mention resolution sémantique** : pass LLM en chapter view qui détecte les références implicites aux entities (pronoms, sobriquets, descriptions) et les link en hover. Économiquement viable une fois le local LLM en place.
+
+---
+
+## Vision v2 — IA externe (brainstorm 2026-05-02 PM)
+
+L'idée : aujourd'hui l'app est "humain-first, LLM-assist" (90% utilisateur, 10% IA intégrée). v2 = inverser le ratio dans un mode optionnel : "LLM-first, humain-arbitre" (10% utilisateur direction + arbitrage, 90% agent qui pilote l'app via MCP). Les deux modes doivent coexister (l'app reste full-featured pour l'écriture directe).
+
+Deux slices indépendantes mais complémentaires :
+
+### Slice 1 — Local LLM provider ✅ figée
+
+Cf. **[docs/post-v1-local-llm.md](./post-v1-local-llm.md)**. Permet de pousser le LLM partout sans angoisse de coût et débloque de futures features token-heavy.
+
+### Slice 2a — MCP server ✅ figée
+
+Cf. **[docs/post-v1-mcp-server.md](./post-v1-mcp-server.md)**. Expose World Builder en serveur MCP, distribué via `packages/mcp-server` workspace + `npx world-builder-mcp`. Migration V015 = table `agent_actions` (writes only). ~17 reads + ~28 writes + 4 intents (split sur extract/propose, one-shot sur upscale/summarize). Auth service role local. Pas de chat tool exposé.
+
+### Slice 2b — Agents qui consomment le MCP ✅ figée
+
+Cf. **[docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md)**. Scope = 2b.1 (Drafting Agent en 3 variantes V1/V2/V3, default V2) + 2b.2 (4 rôles via Claude Desktop Projects : Drafter, Continuity Checker, World Expander, Editor). Pre-req : slice 2a livrée (MCP server) + slice 1 idéale (local LLM pour les intents).
+
+Slice essentiellement documentaire :
+- `docs/agents/system-prompts.md` — 3 Drafting + 4 rôles, prêts à coller dans Claude Desktop Projects
+- `docs/agents/setup-claude-desktop.md` — walkthrough installation MCP + création des 4 Projects
+- `docs/agents/recipes.md` — 5 recettes opérationnelles (Draft from scratch / Continuity audit / Expand entity / Polish for publish / Cascade Drafter→Editor)
+- Tuning itératif de `get_writing_guide` (3-5 cycles courts)
+
+Multi-LLM dans le scope sans effort :
+- **Pilote** : Sonnet 4.6 ou Opus 4.7 selon Project (selector Claude Desktop)
+- **Tools intents** : per-task local/cloud config héritée de slice 1
+
+Multi-agent autonome multi-LLM = slice 3+ (agent custom SDK).
+
+**Workflow type pressenti (Recipe A — Draft from scratch) :**
+1. User ouvre Project "Drafter" dans Claude Desktop
+2. User : "World 'Ashen Crowns'. Nouveau chapter où Iria affronte Sorn dans les ruines."
+3. Agent V2 : `get_writing_guide` → 1 question créative (ton ? rythme ?)
+4. User répond brièvement
+5. Agent : note brainstorm → `auto_extract` → entities/events créées → `create_chapter` (avec first_event) → prose draft → `upscale` → `propose_canon_from_chapter` → diffs appliqués
+6. User revient dans l'app, revue + accept/reject ponctuels, vue `/agent-activity` pour scroller ce qui a bougé.
+
+---
+
 ## Status (2026-05-02 PM, chunk (d) Event upgrade + canonical pivot livré)
 
 **Chunk (d) du plan post-v1 livré end-to-end. V012 appliquée. Smoke Chrome live OpenAI green.**
