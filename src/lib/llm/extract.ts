@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { supabase } from '@/lib/supabase';
-import { modelForTier } from './openai';
 import type { ChatMessage, ModelTier } from './types';
+import { llmCallWithRetry, providerTag, type TransportMode } from './transport';
+import { pickTransport, type RoutingSettings } from './routing';
 
 export const entityCandidateSchema = z.object({
   name: z.string().min(1).max(200),
@@ -22,7 +22,7 @@ export interface ExtractRequest {
   existing: { id: string; name: string; type: string; aliases?: string[] }[];
   /** Known type names (e.g. ["Character", "Location"]) the LLM should pick from. */
   knownTypes: string[];
-  /** Defaults to 'cheapest'. */
+  /** Defaults to 'cheapest'. Cloud-only knob (local uses the per-task model name). */
   tier?: ModelTier;
 }
 
@@ -62,34 +62,34 @@ export interface ExtractResult {
   provider: string;
 }
 
-export async function extractEntitiesOpenai(req: ExtractRequest): Promise<ExtractResult> {
+export interface TransportOpts {
+  transport: TransportMode;
+  model: string;
+}
+
+export async function extractEntities(
+  req: ExtractRequest,
+  opts: TransportOpts,
+): Promise<ExtractResult> {
   const messages = buildExtractMessages(req);
-  const model = modelForTier(req.tier ?? 'cheapest');
-  const { data, error } = await supabase.functions.invoke('llm-call', {
-    body: {
-      messages,
-      model,
-      response_format: { type: 'json_object' },
-    },
-  });
-  if (error) throw new Error(error.message ?? 'extract llm-call failed');
-  if (!data || typeof data.content !== 'string') {
-    throw new Error('extract llm-call returned an invalid payload');
-  }
+  const response = await llmCallWithRetry(
+    { messages, model: opts.model, response_format: { type: 'json_object' } },
+    opts.transport,
+  );
   let parsed: unknown;
   try {
-    parsed = JSON.parse(data.content);
+    parsed = JSON.parse(response.content);
   } catch {
-    throw new Error('extract llm-call returned non-JSON content');
+    throw new Error('extract: response was not valid JSON');
   }
   const valid = responseSchema.safeParse(parsed);
   if (!valid.success) {
-    throw new Error(`extract llm-call returned invalid schema: ${valid.error.message}`);
+    throw new Error(`extract: response schema invalid: ${valid.error.message}`);
   }
   return {
     candidates: valid.data.candidates,
-    model: data.model ?? model,
-    provider: 'openai',
+    model: response.model,
+    provider: providerTag(opts.transport),
   };
 }
 
@@ -123,8 +123,27 @@ export async function extractEntitiesMock(req: ExtractRequest): Promise<ExtractR
   return { candidates, model: 'mock-cheapest', provider: 'mock' };
 }
 
-export function getExtractor(): (req: ExtractRequest) => Promise<ExtractResult> {
-  const provider = (import.meta.env.VITE_LLM_PROVIDER ?? 'mock').toLowerCase();
-  if (provider === 'openai') return extractEntitiesOpenai;
-  return extractEntitiesMock;
+export type Extractor = (req: ExtractRequest) => Promise<ExtractResult>;
+
+function isMockEnv(): boolean {
+  return ((import.meta.env.VITE_LLM_PROVIDER ?? 'mock').toLowerCase()) !== 'openai';
+}
+
+/**
+ * Resolve a callable extractor bound to the user's current settings. Mock env
+ * short-circuits to the canned mock. Otherwise the routing layer picks
+ * cloud-via-edge-fn or local-direct per the user's local LLM config.
+ *
+ * `forceCloud` lets a UI fallback ("Try with cloud") bypass local even when
+ * settings would normally route there.
+ */
+export function getExtractor(
+  settings: RoutingSettings | undefined,
+  opts: { forceCloud?: boolean } = {},
+): Extractor {
+  if (isMockEnv()) return extractEntitiesMock;
+  return async (req) => {
+    const t = pickTransport(settings, 'extract', req.tier ?? 'cheapest', opts);
+    return extractEntities(req, { transport: t.mode, model: t.model });
+  };
 }

@@ -7,9 +7,15 @@ interface Props {
   finalId: string | null;
   onSelect: (id: string) => void;
   onSetFinal: (id: string) => void;
-  onUpscale: (userPrompt: string, includePcc: boolean) => Promise<void>;
+  onUpscale: (
+    userPrompt: string,
+    includePcc: boolean,
+    opts?: { forceCloud?: boolean },
+  ) => Promise<void>;
   upscalePending: boolean;
   upscaleError?: string | null;
+  /** True when the user has local LLM enabled with an upscale model — show "Try with cloud" on errors. */
+  localUpscaleActive?: boolean;
   /** True when the editor has unsaved manual edits — Save button shown at top. */
   dirty: boolean;
   onSaveManualEdit: () => Promise<void>;
@@ -33,6 +39,7 @@ export function VersionsPanel({
   onUpscale,
   upscalePending,
   upscaleError,
+  localUpscaleActive = false,
   dirty,
   onSaveManualEdit,
   saveManualPending,
@@ -44,12 +51,32 @@ export function VersionsPanel({
 }: Props) {
   const [prompt, setPrompt] = useState('');
   const [includePcc, setIncludePcc] = useState(true);
+  const [lastSubmitted, setLastSubmitted] = useState<{
+    prompt: string;
+    includePcc: boolean;
+  } | null>(null);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!prompt.trim() || upscalePending || readOnly) return;
-    await onUpscale(prompt.trim(), includePcc && pccSlotCount > 0);
-    setPrompt('');
+    const args = { prompt: prompt.trim(), includePcc: includePcc && pccSlotCount > 0 };
+    setLastSubmitted(args);
+    try {
+      await onUpscale(args.prompt, args.includePcc);
+      setPrompt('');
+    } catch {
+      // Error is surfaced via upscaleError prop. Keep the prompt populated for retry.
+    }
+  }
+
+  async function onTryWithCloud() {
+    if (!lastSubmitted || upscalePending || readOnly) return;
+    try {
+      await onUpscale(lastSubmitted.prompt, lastSubmitted.includePcc, { forceCloud: true });
+      setPrompt('');
+    } catch {
+      // ignore — error stays surfaced
+    }
   }
 
   return (
@@ -163,9 +190,21 @@ export function VersionsPanel({
           </label>
         ) : null}
         {upscaleError ? (
-          <p className="text-xs text-red-400" data-testid="upscale-error">
-            {upscaleError}
-          </p>
+          <div className="space-y-1">
+            <p className="text-xs text-red-400" data-testid="upscale-error">
+              {upscaleError}
+            </p>
+            {localUpscaleActive && lastSubmitted && !upscalePending ? (
+              <button
+                type="button"
+                onClick={() => void onTryWithCloud()}
+                className="bg-bg-subtle px-2 py-0.5 text-xs hover:bg-bg"
+                data-testid="upscale-try-cloud"
+              >
+                Try with cloud
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {upscalePending ? (
           <div

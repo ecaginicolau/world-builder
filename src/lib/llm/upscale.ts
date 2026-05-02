@@ -1,6 +1,6 @@
-import { supabase } from '@/lib/supabase';
-import { modelForTier } from './openai';
 import type { ChatMessage, ModelTier } from './types';
+import { llmCallWithRetry, providerTag, type TransportMode } from './transport';
+import { pickTransport, type RoutingSettings } from './routing';
 import type { PccSlot } from '@/features/chapters/pcc';
 import { formatPccBlock } from '@/features/chapters/pcc';
 
@@ -25,7 +25,7 @@ export interface UpscaleRequest {
   entityCards: UpscaleEntityCard[];
   /** Optional previous-chapter context. Empty array if disabled. */
   previousChapters?: PccSlot[];
-  /** Defaults to 'best'. */
+  /** Defaults to 'best'. Cloud-only knob. */
   tier?: ModelTier;
 }
 
@@ -87,22 +87,26 @@ export function buildUpscaleMessages(req: UpscaleRequest): ChatMessage[] {
   ];
 }
 
-export async function upscaleChapterOpenai(req: UpscaleRequest): Promise<UpscaleResult> {
+export interface TransportOpts {
+  transport: TransportMode;
+  model: string;
+}
+
+export async function upscaleChapter(
+  req: UpscaleRequest,
+  opts: TransportOpts,
+): Promise<UpscaleResult> {
   const messages = buildUpscaleMessages(req);
-  const model = modelForTier(req.tier ?? 'best');
-  const { data, error } = await supabase.functions.invoke('llm-call', {
-    body: { messages, model },
-  });
-  if (error) throw new Error(error.message ?? 'upscale llm-call failed');
-  if (!data || typeof data.content !== 'string') {
-    throw new Error('upscale llm-call returned an invalid payload');
-  }
+  const response = await llmCallWithRetry(
+    { messages, model: opts.model },
+    opts.transport,
+  );
   return {
-    text: data.content,
-    model: data.model ?? model,
-    provider: 'openai',
-    tokensUsed: data.usage
-      ? { prompt: data.usage.prompt_tokens, completion: data.usage.completion_tokens }
+    text: response.content,
+    model: response.model,
+    provider: providerTag(opts.transport),
+    tokensUsed: response.usage
+      ? { prompt: response.usage.prompt_tokens, completion: response.usage.completion_tokens }
       : undefined,
   };
 }
@@ -117,8 +121,19 @@ export async function upscaleChapterMock(req: UpscaleRequest): Promise<UpscaleRe
   return { text, model: 'mock-upscale', provider: 'mock' };
 }
 
-export function getUpscaler(): (req: UpscaleRequest) => Promise<UpscaleResult> {
-  const provider = (import.meta.env.VITE_LLM_PROVIDER ?? 'mock').toLowerCase();
-  if (provider === 'openai') return upscaleChapterOpenai;
-  return upscaleChapterMock;
+export type Upscaler = (req: UpscaleRequest) => Promise<UpscaleResult>;
+
+function isMockEnv(): boolean {
+  return ((import.meta.env.VITE_LLM_PROVIDER ?? 'mock').toLowerCase()) !== 'openai';
+}
+
+export function getUpscaler(
+  settings: RoutingSettings | undefined,
+  opts: { forceCloud?: boolean } = {},
+): Upscaler {
+  if (isMockEnv()) return upscaleChapterMock;
+  return async (req) => {
+    const t = pickTransport(settings, 'upscale', req.tier ?? 'best', opts);
+    return upscaleChapter(req, { transport: t.mode, model: t.model });
+  };
 }

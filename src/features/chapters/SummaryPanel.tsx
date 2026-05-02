@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Chapter } from './types';
 import type { SummaryLength } from '@/lib/llm/summaries';
 import { useConfirm } from '@/lib/useConfirm';
@@ -8,10 +8,12 @@ interface Props {
   finalText: string;
   generating: SummaryLength | null;
   generateError: string | null;
-  onGenerate: (len: SummaryLength) => Promise<void>;
+  onGenerate: (len: SummaryLength, opts?: { forceCloud?: boolean }) => Promise<void>;
   onSave: (len: SummaryLength, text: string) => Promise<void>;
   savePending: boolean;
   readOnly?: boolean;
+  /** True when the user has local LLM enabled with a summaries model — show "Try with cloud" on errors. */
+  localSummariesActive?: boolean;
 }
 
 const LENGTHS: { key: SummaryLength; label: string; hint: string; rows: number }[] = [
@@ -23,7 +25,18 @@ const LENGTHS: { key: SummaryLength; label: string; hint: string; rows: number }
 export function SummaryPanel({
   chapter, finalText, generating, generateError,
   onGenerate, onSave, savePending, readOnly = false,
+  localSummariesActive = false,
 }: Props) {
+  const lastRequestedRef = useRef<SummaryLength | null>(null);
+  async function handleGenerate(len: SummaryLength) {
+    lastRequestedRef.current = len;
+    await onGenerate(len);
+  }
+  async function tryWithCloud() {
+    const len = lastRequestedRef.current;
+    if (!len) return;
+    await onGenerate(len, { forceCloud: true });
+  }
   return (
     <div
       className="flex h-full min-h-0 w-full min-w-0 flex-col rounded-md border border-border bg-bg-panel"
@@ -39,9 +52,21 @@ export function SummaryPanel({
           </p>
         ) : null}
         {generateError ? (
-          <p className="text-xs text-red-400" data-testid="summary-error">
-            {generateError}
-          </p>
+          <div className="space-y-1">
+            <p className="text-xs text-red-400" data-testid="summary-error">
+              {generateError}
+            </p>
+            {localSummariesActive && lastRequestedRef.current && generating === null ? (
+              <button
+                type="button"
+                onClick={() => void tryWithCloud()}
+                className="bg-bg-subtle px-2 py-0.5 text-xs hover:bg-bg"
+                data-testid="summary-try-cloud"
+              >
+                Try with cloud ({lastRequestedRef.current})
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {LENGTHS.map((len) => (
           <SummaryRow
@@ -51,7 +76,7 @@ export function SummaryPanel({
             generating={generating === len.key}
             anyGenerating={generating !== null}
             disabled={readOnly}
-            onGenerate={() => onGenerate(len.key)}
+            onGenerate={() => handleGenerate(len.key)}
             onSave={(text) => onSave(len.key, text)}
             savePending={savePending}
           />

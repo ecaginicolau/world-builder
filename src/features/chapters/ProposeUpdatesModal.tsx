@@ -113,7 +113,7 @@ export function ProposeUpdatesModal({
 
   if (!open) return null;
 
-  async function runProposals() {
+  async function runProposals(opts: { forceCloud?: boolean } = {}) {
     if (session.status !== 'authed') return;
     if (!chapterQ.data) return;
     setPhase('loading');
@@ -153,7 +153,7 @@ export function ProposeUpdatesModal({
         .filter((ev): ev is NonNullable<typeof ev> => !!ev)
         .map((ev) => ({ title: ev.title, description: ev.description }));
 
-      const propose = getCanonProposer();
+      const propose = getCanonProposer(settingsQ.data, { forceCloud: opts.forceCloud });
       const startedAt = Date.now();
       const result = await propose({
         worldMemory: worldQ.data?.world_memory ?? worldQ.data?.description ?? undefined,
@@ -340,13 +340,26 @@ export function ProposeUpdatesModal({
             <p className="text-sm text-red-400" data-testid="propose-error">
               {error}
             </p>
-            <button
-              type="button"
-              onClick={() => void runProposals()}
-              className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg"
-            >
-              Retry
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void runProposals()}
+                className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg"
+              >
+                Retry
+              </button>
+              {settingsQ.data?.localLlmEnabled &&
+              settingsQ.data?.proposalsLocalModel ? (
+                <button
+                  type="button"
+                  onClick={() => void runProposals({ forceCloud: true })}
+                  className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg"
+                  data-testid="propose-try-cloud"
+                >
+                  Try with cloud
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 

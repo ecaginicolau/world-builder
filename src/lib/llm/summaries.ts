@@ -1,6 +1,6 @@
-import { supabase } from '@/lib/supabase';
-import { modelForTier } from './openai';
 import type { ChatMessage, ModelTier } from './types';
+import { llmCallWithRetry, providerTag, type TransportMode } from './transport';
+import { pickTransport, type RoutingSettings } from './routing';
 
 export type SummaryLength = 'S' | 'M' | 'L';
 
@@ -10,6 +10,7 @@ export interface SummarizeRequest {
   chapterTitle?: string;
   chapterText: string;
   length: SummaryLength;
+  /** Cloud-only knob. */
   tier?: ModelTier;
 }
 
@@ -53,22 +54,23 @@ export function buildSummarizeMessages(req: SummarizeRequest): ChatMessage[] {
   ];
 }
 
-export async function summarizeOpenai(req: SummarizeRequest): Promise<SummarizeResult> {
+export interface TransportOpts {
+  transport: TransportMode;
+  model: string;
+}
+
+export async function summarize(
+  req: SummarizeRequest,
+  opts: TransportOpts,
+): Promise<SummarizeResult> {
   const messages = buildSummarizeMessages(req);
-  const model = modelForTier(req.tier ?? 'cheapest');
-  const { data, error } = await supabase.functions.invoke('llm-call', {
-    body: { messages, model },
-  });
-  if (error) throw new Error(error.message ?? 'summarize llm-call failed');
-  if (!data || typeof data.content !== 'string') {
-    throw new Error('summarize llm-call returned an invalid payload');
-  }
+  const response = await llmCallWithRetry({ messages, model: opts.model }, opts.transport);
   return {
-    text: data.content.trim(),
-    model: data.model ?? model,
-    provider: 'openai',
-    tokensUsed: data.usage
-      ? { prompt: data.usage.prompt_tokens, completion: data.usage.completion_tokens }
+    text: response.content.trim(),
+    model: response.model,
+    provider: providerTag(opts.transport),
+    tokensUsed: response.usage
+      ? { prompt: response.usage.prompt_tokens, completion: response.usage.completion_tokens }
       : undefined,
   };
 }
@@ -85,8 +87,19 @@ export async function summarizeMock(req: SummarizeRequest): Promise<SummarizeRes
   return { text, model: 'mock-summarize', provider: 'mock' };
 }
 
-export function getSummarizer(): (req: SummarizeRequest) => Promise<SummarizeResult> {
-  const provider = (import.meta.env.VITE_LLM_PROVIDER ?? 'mock').toLowerCase();
-  if (provider === 'openai') return summarizeOpenai;
-  return summarizeMock;
+export type Summarizer = (req: SummarizeRequest) => Promise<SummarizeResult>;
+
+function isMockEnv(): boolean {
+  return ((import.meta.env.VITE_LLM_PROVIDER ?? 'mock').toLowerCase()) !== 'openai';
+}
+
+export function getSummarizer(
+  settings: RoutingSettings | undefined,
+  opts: { forceCloud?: boolean } = {},
+): Summarizer {
+  if (isMockEnv()) return summarizeMock;
+  return async (req) => {
+    const t = pickTransport(settings, 'summaries', req.tier ?? 'cheapest', opts);
+    return summarize(req, { transport: t.mode, model: t.model });
+  };
 }

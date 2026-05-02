@@ -2,6 +2,59 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-02 nuit, slice 1 — Local LLM provider livrée)
+
+**Slice 1 (post-v1, vision v2 IA externe) livrée. V014 appliquée. Smoke Chrome live OK sur la persistance des settings.**
+
+Voir **[docs/demo/local-llm-setup.md](./demo/local-llm-setup.md)** pour le walkthrough setup + verify.
+
+### Migration V014 (appliquée)
+
+- `user_settings`: ADD `local_llm_enabled boolean default false`, `local_llm_endpoint text`, `extract_local_model text`, `proposals_local_model text`, `upscale_local_model text`, `summaries_local_model text`. Idempotent.
+- `runs`: rien à faire — `provider` et `model` existent depuis V002, peuplés `'local'` + nom du modèle quand on route local.
+
+### Livré
+
+- **Transport layer** ([src/lib/llm/transport.ts](../src/lib/llm/transport.ts)) : `llmCall(body, mode)` qui dispatche entre cloud (via edge fn `llm-call`) et local (browser-direct fetch sur `${endpoint}/chat/completions` OpenAI-compat). `LlmCallError` typé avec `retryable` flag. `llmCallWithRetry` retry-once sur erreurs transient (network/5xx/timeout/429).
+- **Routing layer** ([src/lib/llm/routing.ts](../src/lib/llm/routing.ts)) : `pickTransport(settings, task, fallbackTier, opts)` décide cloud-vs-local. Local ssi (a) toggle on, (b) endpoint set, (c) per-task model non-empty, (d) `forceCloud` non passé. Sinon cloud avec tier mapping.
+- **4 task files refactorisés** (`extract.ts`, `proposeCanon.ts`, `upscale.ts`, `summaries.ts`) : chacun expose `<task>(req, opts: {transport, model})` (real) + `<task>Mock(req)` (env mock) + `get<Taskner>(settings, {forceCloud?})` qui choisit. Mock unchanged. Validation Zod conservée.
+- **`user_settings` étendu** ([src/lib/queries/userSettings.ts](../src/lib/queries/userSettings.ts)) : nouveaux champs typés camelCase, hook `useUpdateUserSettings` accepte tous en patch. Cast explicite pour bypasser supabase-js generic-string-error inference sur le SELECT dynamique.
+- **SettingsScreen — section Local LLM** : checkbox "Enable local LLM" save-on-change, endpoint URL save-on-blur (default placeholder `http://localhost:11434/v1`), 4 per-task model fields save-on-blur (default placeholder `qwen2.5:14b`). Setup hint + lien doc en bas. Saved indicator partagé avec les autres sections via état `local-llm`. Test-id complet (`local-llm-enabled`, `local-llm-endpoint`, `local-model-extract|proposals|upscale|summaries`).
+- **"Try with cloud" UI** : ajouté dans **ProposeUpdatesModal** (phase error), **VersionsPanel** (upscale error, panel garde le prompt si onUpscale rethrow), **SummaryPanel** (error d'une longueur donnée). N'apparaît que quand `localLlmEnabled && per-task model set`. Auto-extract pas de bouton — la debounce-loop relance naturellement à la frappe suivante.
+- **Call sites mis à jour** : `useAutoExtract.ts`, `ProposeUpdatesModal.tsx`, `ChapterScreen.tsx` (upscale + summarize) passent `settingsQ.data` à `get<Taskner>()`. ChapterScreen.onUpscale rethrow sur erreur (sinon le panel clear le prompt et la retry "Try with cloud" perdrait l'arg).
+
+### Validation
+
+- typecheck ✓ · lint ✓ (1 warning pré-existant `router.tsx`) · 120 Vitest ✓ (23 nouveaux : 10 routing + 13 transport) · 4 Playwright e2e ✓ · build prod ✓
+- Smoke Chrome live sur Smoke Test World :
+  - Section Local LLM rendue dans Settings, layout cohérent avec les autres sections. ✓
+  - Toggle Enable → "Saved" badge, persistance après reload. ✓
+  - Endpoint URL save-on-blur → persisté (`http://localhost:11434/v1`). ✓
+  - Auto-extract model save-on-blur → persisté (`qwen2.5:14b`). ✓
+  - Toggle off → enabled=false MAIS endpoint + per-task model conservés (kill-switch sans reset). ✓
+  - Monitoring panel toujours fonctionnel (rows historiques cloud affichées). ✓
+  - Live local LLM (Ollama, modèle `qwen3.6:latest`) validé par le user end-to-end : extract, propose canon, upscale tous fonctionnels. Latence sensiblement plus haute qu'en cloud comme attendu.
+
+### Décisions tranchées
+
+- **Provider tag = `'local'`** dans `runs.provider` (pas `'ollama'` ou `'openai-compat'`) — agnostique au runtime, suffit pour distinguer cloud vs local en monitoring.
+- **`reasoning_effort` droppé** quand on appelle local (OpenAI-only knob, les runtimes locaux ignorent ou rejettent).
+- **`stream: false`** explicite dans le payload local (Ollama default = stream=true qui casserait notre code de parsing).
+- **Endpoint normalisé** : trailing slash retiré avant d'append `/chat/completions`.
+- **Retry once seulement** (pas 2) sur erreurs transient. Les vrais échecs surfacent vite, le user clique "Try with cloud" si besoin. Pas de retry sur erreur payload (JSON invalide / content vide).
+- **forceCloud explicit > silent fallback** : pas de fallback automatique cloud sur erreur local (sinon coûts cachés). Le bouton "Try with cloud" est la seule porte de sortie.
+- **Pas de `chat` dans le scope** : extract, proposals, upscale, summaries seulement. Le chat (NoteScreen / ChapterScreen / EventScreen) continue de passer par `getLlm()` cloud — coût négligeable, et l'UX chat est plus sensible aux latences locales.
+
+### À reprendre dans une prochaine session — point d'entrée
+
+**Vision v2 IA externe — slice 1 livrée.** Prochaine slice = **2a (MCP server)**, cf. **[docs/post-v1-mcp-server.md](./post-v1-mcp-server.md)**. Migration V015 = table `agent_actions`. Mini-refacto npm workspaces + 49 tools + UI activity. Compter plusieurs sessions.
+
+Slice 2b (agents) suit, surtout documentaire, cf. **[docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md)**.
+
+User feedback à intégrer après usage local-LLM réel : si Qwen2.5:14b se comporte mal sur les JSON tasks, peut-être ajouter un prompt-strengthening retry (1 retry avec "OUTPUT VALID JSON ONLY" prepended) avant le fallback cloud.
+
+---
+
 ## Status (2026-05-02 soirée, chunk (d.x) post-validation iterations livré)
 
 **Itérations UX/data sur (d) suite à validation live par le user. V013 appliquée. 4 paquets livrés.**
@@ -70,7 +123,7 @@ Après :
 
 **Vision v2 brainstormée 2026-05-02 PM :** intégration IA externe en 2 slices indépendantes. Cf. § "Vision v2" ci-dessous.
 
-- **Slice 1 (figée)** : Local LLM provider — swap des 4 tâches LLM (extract, proposals, upscale, summaries) vers un endpoint OpenAI-compat (Ollama / LM Studio / etc.) browser-direct. Toggle global + per-task model. Spec complète : **[docs/post-v1-local-llm.md](./post-v1-local-llm.md)**. Migration V014.
+- **Slice 1 (livrée — 2026-05-02 nuit)** : Local LLM provider. V014 appliquée. 4 tasks routables vers Ollama/LM Studio via toggle global + per-task model. Cf. **[docs/demo/local-llm-setup.md](./demo/local-llm-setup.md)** pour le setup.
 - **Slice 2a (figée)** : MCP server exposant World Builder. ~17 reads + ~28 writes + 4 intents. Auth = service role local. Logging = nouvelle table `agent_actions` (writes only). Distribution = `packages/mcp-server` workspace, `npx world-builder-mcp` pour Claude Desktop. Migration V015. Spec complète : **[docs/post-v1-mcp-server.md](./post-v1-mcp-server.md)**.
 - **Slice 2b (figée)** : agents qui consomment le MCP. Scope = 2b.1 (Drafting Agent V1/V2/V3) + 2b.2 (4 rôles via Claude Desktop Projects : Drafter, Continuity Checker, World Expander, Editor). Slice principalement documentaire (3 docs `docs/agents/*`) + tuning itératif de `get_writing_guide`. Aucune migration. Spec complète : **[docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md)**.
 
@@ -91,9 +144,9 @@ L'idée : aujourd'hui l'app est "humain-first, LLM-assist" (90% utilisateur, 10%
 
 Deux slices indépendantes mais complémentaires :
 
-### Slice 1 — Local LLM provider ✅ figée
+### Slice 1 — Local LLM provider ✅ livrée
 
-Cf. **[docs/post-v1-local-llm.md](./post-v1-local-llm.md)**. Permet de pousser le LLM partout sans angoisse de coût et débloque de futures features token-heavy.
+Cf. **[docs/post-v1-local-llm.md](./post-v1-local-llm.md)** (spec) et **[docs/demo/local-llm-setup.md](./demo/local-llm-setup.md)** (setup walkthrough). Livré 2026-05-02 nuit, V014 appliquée. Détails dans `## Status (2026-05-02 nuit, slice 1 — Local LLM provider livrée)`.
 
 ### Slice 2a — MCP server ✅ figée
 

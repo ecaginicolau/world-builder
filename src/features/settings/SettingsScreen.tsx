@@ -7,10 +7,24 @@ import type { ContextLevel } from '@/features/worlds/types';
 import { DEFAULT_PCC } from '@/features/worlds/types';
 
 const DEFAULT_DEBOUNCE = 5000;
+const DEFAULT_LOCAL_ENDPOINT = 'http://localhost:11434/v1';
 const TIERS: { value: ModelTier; label: string }[] = [
   { value: 'cheapest', label: 'Fast (cheapest)' },
   { value: 'medium', label: 'Balanced (medium)' },
   { value: 'best', label: 'Best (slowest, most expensive)' },
+];
+
+type LocalModelField =
+  | 'extractLocalModel'
+  | 'proposalsLocalModel'
+  | 'upscaleLocalModel'
+  | 'summariesLocalModel';
+
+const LOCAL_MODEL_FIELDS: { field: LocalModelField; label: string; testid: string }[] = [
+  { field: 'extractLocalModel', label: 'Auto-extract', testid: 'local-model-extract' },
+  { field: 'proposalsLocalModel', label: 'Proposals', testid: 'local-model-proposals' },
+  { field: 'upscaleLocalModel', label: 'Upscale', testid: 'local-model-upscale' },
+  { field: 'summariesLocalModel', label: 'Summaries', testid: 'local-model-summaries' },
 ];
 
 export function SettingsScreen() {
@@ -22,7 +36,16 @@ export function SettingsScreen() {
 
   const [debounce, setDebounce] = useState<string>('');
   const [customPrompt, setCustomPrompt] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState<'global' | 'world' | 'tiers' | 'pcc' | null>(null);
+  const [savedFlash, setSavedFlash] = useState<
+    'global' | 'world' | 'tiers' | 'pcc' | 'local-llm' | null
+  >(null);
+  const [endpointDraft, setEndpointDraft] = useState<string | null>(null);
+  const [modelDrafts, setModelDrafts] = useState<Record<LocalModelField, string | null>>({
+    extractLocalModel: null,
+    proposalsLocalModel: null,
+    upscaleLocalModel: null,
+    summariesLocalModel: null,
+  });
 
   useEffect(() => {
     const v = settingsQ.data?.prefs.autoExtractDebounceMs ?? DEFAULT_DEBOUNCE;
@@ -35,7 +58,7 @@ export function SettingsScreen() {
     }
   }, [customPrompt, worldQ.data]);
 
-  function showSaved(which: 'global' | 'world' | 'tiers' | 'pcc') {
+  function showSaved(which: 'global' | 'world' | 'tiers' | 'pcc' | 'local-llm') {
     setSavedFlash(which);
     setTimeout(() => setSavedFlash((s) => (s === which ? null : s)), 1500);
   }
@@ -69,6 +92,27 @@ export function SettingsScreen() {
   ) {
     await updateSettings.mutateAsync({ [field]: value });
     showSaved('tiers');
+  }
+
+  async function onToggleLocalLlm(enabled: boolean) {
+    await updateSettings.mutateAsync({ localLlmEnabled: enabled });
+    showSaved('local-llm');
+  }
+
+  async function commitEndpoint(value: string) {
+    const trimmed = value.trim();
+    const next = trimmed.length > 0 ? trimmed : null;
+    if ((settingsQ.data?.localLlmEndpoint ?? null) === next) return;
+    await updateSettings.mutateAsync({ localLlmEndpoint: next });
+    showSaved('local-llm');
+  }
+
+  async function commitLocalModel(field: LocalModelField, value: string) {
+    const trimmed = value.trim();
+    const next = trimmed.length > 0 ? trimmed : null;
+    if ((settingsQ.data?.[field] ?? null) === next) return;
+    await updateSettings.mutateAsync({ [field]: next });
+    showSaved('local-llm');
   }
 
   return (
@@ -120,6 +164,86 @@ export function SettingsScreen() {
             testid="tier-summarize"
           />
         </div>
+      </section>
+
+      <section className="space-y-3" data-testid="settings-local-llm">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-muted">
+            Local LLM
+          </h2>
+          {savedFlash === 'local-llm' ? (
+            <span className="text-xs text-emerald-400" data-testid="local-llm-saved">
+              Saved
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-fg-muted">
+          Route the four LLM tasks (auto-extract, proposals, upscale, summaries) to a local
+          OpenAI-compatible endpoint (Ollama, LM Studio, llama.cpp <code>--api</code>) instead
+          of the cloud. When the toggle is off, the per-task models below are kept but unused;
+          everything falls back to the LLM tiers above. Tasks with an empty model also fall
+          back even when the toggle is on.
+        </p>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={settingsQ.data?.localLlmEnabled ?? false}
+            onChange={(e) => onToggleLocalLlm(e.target.checked)}
+            data-testid="local-llm-enabled"
+          />
+          <span className="text-sm">Enable local LLM</span>
+        </label>
+        <label className="block space-y-1">
+          <span className="text-xs text-fg-muted">Endpoint URL (OpenAI-compatible)</span>
+          <input
+            type="text"
+            value={endpointDraft ?? settingsQ.data?.localLlmEndpoint ?? ''}
+            onChange={(e) => setEndpointDraft(e.target.value)}
+            onBlur={() => {
+              const v = endpointDraft;
+              if (v !== null) {
+                void commitEndpoint(v);
+                setEndpointDraft(null);
+              }
+            }}
+            placeholder={DEFAULT_LOCAL_ENDPOINT}
+            spellCheck={false}
+            className="w-full px-3 py-2 font-mono text-sm"
+            data-testid="local-llm-endpoint"
+          />
+        </label>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {LOCAL_MODEL_FIELDS.map(({ field, label, testid }) => (
+            <label key={field} className="block space-y-1">
+              <span className="text-xs text-fg-muted">{label}</span>
+              <input
+                type="text"
+                value={modelDrafts[field] ?? settingsQ.data?.[field] ?? ''}
+                onChange={(e) =>
+                  setModelDrafts((m) => ({ ...m, [field]: e.target.value }))
+                }
+                onBlur={() => {
+                  const v = modelDrafts[field];
+                  if (v !== null) {
+                    void commitLocalModel(field, v);
+                    setModelDrafts((m) => ({ ...m, [field]: null }));
+                  }
+                }}
+                placeholder="qwen2.5:14b"
+                spellCheck={false}
+                className="w-full bg-bg-subtle px-2 py-1 font-mono text-sm"
+                data-testid={testid}
+              />
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-fg-muted">
+          Setup hint: install Ollama, run{' '}
+          <code className="font-mono">OLLAMA_ORIGINS=* ollama serve</code> (CORS for browser
+          calls), then <code className="font-mono">ollama pull qwen2.5:14b</code>. See{' '}
+          <span className="font-mono">docs/demo/local-llm-setup.md</span> for the full
+          walkthrough.
+        </p>
       </section>
 
       <section className="space-y-3" data-testid="settings-pcc">

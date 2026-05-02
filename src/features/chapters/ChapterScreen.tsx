@@ -206,7 +206,11 @@ export function ChapterScreen() {
     prevCountRef.current = versions.length;
   }, [versions]);
 
-  async function onUpscale(userPrompt: string, includePcc: boolean) {
+  async function onUpscale(
+    userPrompt: string,
+    includePcc: boolean,
+    opts: { forceCloud?: boolean } = {},
+  ) {
     setUpscaleError(null);
     if (upscaling) return;
     if (session.status !== 'authed' || !chapterQ.data || !finalVersion) return;
@@ -244,7 +248,7 @@ export function ChapterScreen() {
         allChapters: worldChaptersQ.data ?? [],
         configuredSlots: worldQ.data?.previous_chapter_context ?? [],
       });
-      const upscale = getUpscaler();
+      const upscale = getUpscaler(settingsQ.data, { forceCloud: opts.forceCloud });
       const startedAt = Date.now();
       const result = await upscale({
         worldMemory: worldQ.data?.world_memory ?? worldQ.data?.description ?? undefined,
@@ -286,18 +290,22 @@ export function ChapterScreen() {
       });
     } catch (err) {
       setUpscaleError(err instanceof Error ? err.message : String(err));
+      throw err;
     } finally {
       setUpscaling(false);
     }
   }
 
-  async function onGenerateSummary(len: SummaryLength) {
+  async function onGenerateSummary(
+    len: SummaryLength,
+    opts: { forceCloud?: boolean } = {},
+  ) {
     setSummarizeError(null);
     if (session.status !== 'authed' || !chapterQ.data || !finalVersion) return;
     if (summarizing) return;
     setSummarizing(len);
     try {
-      const summarize = getSummarizer();
+      const summarize = getSummarizer(settingsQ.data, { forceCloud: opts.forceCloud });
       const startedAt = Date.now();
       const result = await summarize({
         worldMemory: worldQ.data?.world_memory ?? worldQ.data?.description ?? undefined,
@@ -578,6 +586,10 @@ export function ChapterScreen() {
                   onUpscale={onUpscale}
                   upscalePending={upscaling}
                   upscaleError={upscaleError}
+                  localUpscaleActive={
+                    !!settingsQ.data?.localLlmEnabled &&
+                    !!settingsQ.data?.upscaleLocalModel
+                  }
                   dirty={dirty && !isEditableInPlace}
                   onSaveManualEdit={onSaveManualEdit}
                   saveManualPending={createVersion.isPending}
@@ -599,6 +611,10 @@ export function ChapterScreen() {
                   onSave={onSaveSummary}
                   savePending={updateChapter.isPending}
                   readOnly={isPublished}
+                  localSummariesActive={
+                    !!settingsQ.data?.localLlmEnabled &&
+                    !!settingsQ.data?.summariesLocalModel
+                  }
                 />
               </div>
             ) : (

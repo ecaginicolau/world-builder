@@ -84,7 +84,7 @@ export function useAutoExtract({
       inFlightRef.current = true;
       setState((s) => ({ ...s, status: 'pending' }));
       try {
-        const extractor = getExtractor();
+        const extractor = getExtractor(settingsQ.data);
         const knownTypes = (typesQ.data ?? []).map((t) => t.name);
         const existing = (entitiesQ.data ?? []).map((e) => {
           const t = (typesQ.data ?? []).find((tt) => tt.id === e.entity_type_id);
@@ -129,7 +129,7 @@ export function useAutoExtract({
     typesQ.data,
     cacheKey,
     debounceMs,
-    settingsQ.data?.extractTier,
+    settingsQ.data,
   ]);
 
   return state;

@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { supabase } from '@/lib/supabase';
-import { modelForTier } from './openai';
 import type { ChatMessage, ModelTier } from './types';
+import { llmCallWithRetry, providerTag, type TransportMode } from './transport';
+import { pickTransport, type RoutingSettings } from './routing';
 import type { FieldDef } from '@/features/entities/types';
 
 /**
@@ -27,7 +27,7 @@ export interface CanonRequest {
   entityCards: CanonEntityCard[];
   /** Already-linked events on this chapter — for "don't repropose what's canon". */
   existingEvents: { title: string; description: string | null }[];
-  /** Defaults to 'medium'. */
+  /** Defaults to 'medium'. Cloud-only knob. */
   tier?: ModelTier;
 }
 
@@ -114,31 +114,35 @@ export interface CanonResult {
   provider: string;
 }
 
-export async function proposeCanonOpenai(req: CanonRequest): Promise<CanonResult> {
+export interface TransportOpts {
+  transport: TransportMode;
+  model: string;
+}
+
+export async function proposeCanon(
+  req: CanonRequest,
+  opts: TransportOpts,
+): Promise<CanonResult> {
   const messages = buildCanonMessages(req);
-  const model = modelForTier(req.tier ?? 'medium');
-  const { data, error } = await supabase.functions.invoke('llm-call', {
-    body: {
-      messages,
-      model,
-      response_format: { type: 'json_object' },
-    },
-  });
-  if (error) throw new Error(error.message ?? 'propose-canon llm-call failed');
-  if (!data || typeof data.content !== 'string') {
-    throw new Error('propose-canon llm-call returned an invalid payload');
-  }
+  const response = await llmCallWithRetry(
+    { messages, model: opts.model, response_format: { type: 'json_object' } },
+    opts.transport,
+  );
   let parsed: unknown;
   try {
-    parsed = JSON.parse(data.content);
+    parsed = JSON.parse(response.content);
   } catch {
-    throw new Error('propose-canon llm-call returned non-JSON content');
+    throw new Error('propose-canon: response was not valid JSON');
   }
   const valid = responseSchema.safeParse(parsed);
   if (!valid.success) {
-    throw new Error(`propose-canon llm-call returned invalid schema: ${valid.error.message}`);
+    throw new Error(`propose-canon: response schema invalid: ${valid.error.message}`);
   }
-  return { events: valid.data.events, model: data.model ?? model, provider: 'openai' };
+  return {
+    events: valid.data.events,
+    model: response.model,
+    provider: providerTag(opts.transport),
+  };
 }
 
 export async function proposeCanonMock(req: CanonRequest): Promise<CanonResult> {
@@ -170,8 +174,19 @@ export async function proposeCanonMock(req: CanonRequest): Promise<CanonResult> 
   return { events, model: 'mock-canon', provider: 'mock' };
 }
 
-export function getCanonProposer(): (req: CanonRequest) => Promise<CanonResult> {
-  const provider = (import.meta.env.VITE_LLM_PROVIDER ?? 'mock').toLowerCase();
-  if (provider === 'openai') return proposeCanonOpenai;
-  return proposeCanonMock;
+export type CanonProposer = (req: CanonRequest) => Promise<CanonResult>;
+
+function isMockEnv(): boolean {
+  return ((import.meta.env.VITE_LLM_PROVIDER ?? 'mock').toLowerCase()) !== 'openai';
+}
+
+export function getCanonProposer(
+  settings: RoutingSettings | undefined,
+  opts: { forceCloud?: boolean } = {},
+): CanonProposer {
+  if (isMockEnv()) return proposeCanonMock;
+  return async (req) => {
+    const t = pickTransport(settings, 'proposals', req.tier ?? 'medium', opts);
+    return proposeCanon(req, { transport: t.mode, model: t.model });
+  };
 }
