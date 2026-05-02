@@ -22,6 +22,7 @@ import { SettingsScreen } from './features/settings/SettingsScreen';
 import { ReaderScreen } from './features/reader/ReaderScreen';
 import { ReaderChapterScreen } from './features/reader/ReaderChapterScreen';
 import { RunsScreen } from './features/runs/RunsScreen';
+import { AgentActivityScreen } from './features/agentActivity/AgentActivityScreen';
 import { Login } from './features/auth/Login';
 import { supabase } from './lib/supabase';
 
@@ -177,6 +178,13 @@ const runsRoute = createRoute({
   component: RunsScreen,
 });
 
+const agentActivityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/agent-activity',
+  beforeLoad: requireAuth,
+  component: AgentActivityScreen,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -195,6 +203,7 @@ const routeTree = rootRoute.addChildren([
   readerRoute,
   readerChapterRoute,
   runsRoute,
+  agentActivityRoute,
 ]);
 
 export const router = createRouter({ routeTree });

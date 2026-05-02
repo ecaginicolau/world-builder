@@ -1,0 +1,29 @@
+{
+  "name": "world-builder-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server exposing World Builder reads/writes/intents to MCP clients (Claude Desktop, mcp inspector, ...).",
+  "type": "module",
+  "bin": {
+    "world-builder-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "typecheck": "tsc -b --noEmit",
+    "start": "node ./dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "zod": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "typescript": "^5.6.3"
+  }
+}

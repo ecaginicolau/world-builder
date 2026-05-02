@@ -87,3 +87,6 @@ playwright/.cache/
 
 # Claude Code session-local
 .claude/
+
+# MCP server config (contains service role key — see .mcp.json.example)
+.mcp.json

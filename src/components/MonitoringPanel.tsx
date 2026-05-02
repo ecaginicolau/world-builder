@@ -41,14 +41,24 @@ export function MonitoringPanel() {
         </span>
         <div className="flex items-center">
           {worldId ? (
-            <Link
-              to="/worlds/$worldId/runs"
-              params={{ worldId }}
-              className="px-2 text-fg-muted hover:text-fg"
-              data-testid="monitoring-view-all"
-            >
-              View all →
-            </Link>
+            <>
+              <Link
+                to="/worlds/$worldId/agent-activity"
+                params={{ worldId }}
+                className="px-2 text-fg-muted hover:text-fg"
+                data-testid="monitoring-agent-activity"
+              >
+                Agent activity →
+              </Link>
+              <Link
+                to="/worlds/$worldId/runs"
+                params={{ worldId }}
+                className="px-2 text-fg-muted hover:text-fg"
+                data-testid="monitoring-view-all"
+              >
+                View all →
+              </Link>
+            </>
           ) : null}
           <button
             type="button"

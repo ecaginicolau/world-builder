@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -12,7 +15,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "mcp:build": "npm run build -w world-builder-mcp",
+    "mcp:dev": "npm run dev -w world-builder-mcp",
+    "mcp:typecheck": "npm run typecheck -w world-builder-mcp"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

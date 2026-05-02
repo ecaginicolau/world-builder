@@ -2,6 +2,63 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-02 nuit++, slice 2a.1 — MCP server reads + writes livrés et validés live)
+
+**Slice 2a.1 (post-v1, vision v2 IA externe — partie reads/writes) livrée et validée end-to-end. V015 appliquée. Build + typecheck + lint + 120 Vitest ✓ + prod build ✓. MCP wired dans Claude Code via `.mcp.json` project-scoped — les 47 tools sont accessibles côté assistant pendant les sessions de dev.**
+
+Voir **[docs/demo/mcp-server-setup.md](./demo/mcp-server-setup.md)** pour le walkthrough setup + verify (mcp inspector + Claude Desktop).
+
+### Migration V015 (appliquée)
+
+- `agent_actions` (id, world_id, owner_id, agent_session_id, action_kind, target_kind, target_id, payload jsonb, created_at) + 2 indexes `(world_id, created_at desc)` et `(agent_session_id)` + RLS owner-scoped. Idempotent.
+
+### Livré
+
+- **Monorepo npm workspaces** : `packages/mcp-server` ajouté en workspace, app racine inchangée. Scripts root : `npm run mcp:build`, `mcp:dev`, `mcp:typecheck`. Bin linké en `node_modules/.bin/world-builder-mcp` via npm workspaces.
+- **MCP server scaffolding** ([packages/mcp-server/src/index.ts](../packages/mcp-server/src/index.ts)) : transport stdio, env validation zod (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OWNER_USER_ID`), service-role Supabase client, `agent_session_id` (uuidv4) généré au démarrage, `logAction` helper qui insère dans `agent_actions` (writes only, fire-and-forget). Standard return envelope `{ok, data} | {ok, error}` JSON-stringifié dans un text content block.
+- **`get_writing_guide`** ([packages/mcp-server/src/guide.ts](../packages/mcp-server/src/guide.ts)) : retourne `{world_memory, custom_prompt, flow_recipe (7 steps), business_rules (8), conventions (rank format, field kinds, pinning)}`. À tuner dans 2b selon comment Claude Desktop / claude-code consomment ce briefing.
+- **18 read tools** (non loggés) : `list_worlds`, `get_world`, `get_writing_guide`, `list_notes` (FTS optionnel), `get_note`, `list_entities` (snapshot resolved), `get_entity` (+ type + snapshot), `get_entity_state_at_rank` (per-field walk), `list_entity_versions`, `list_entity_types`, `list_events`, `get_event` (+ linked_chapters + participants), `list_chapters`, `get_chapter` (+ final_version_text + linked_events + participants), `get_chapter_summary`, `get_pcc` (renvoie l'array configuré dans `worlds.previous_chapter_context`), `list_books` (avec parts[] embedded), `search` (FTS notes/chapters/entities). Toutes les queries sont scopées `owner_id = OWNER_USER_ID`.
+- **29 write tools** (tous loggés via `logAction`) :
+  - **Notes (3)** : `create_note`, `update_note`, `delete_note`.
+  - **Entities (5)** : `create_entity` (insère auto la v0 init avec `initial_fields`, rollback en cas d'échec), `update_entity` (metadata: name/aliases/tags/type), `set_entity_field` (race-safe insert-then-update-on-conflict reproduisant exactement le pattern d.x de l'app), `reset_entity_field` (delete row si snapshot vide ET event-anchored), `delete_entity`.
+  - **Events (3)** : `create_event` (chronological_rank optionnel — append à la fin sinon), `update_event`, `delete_event`.
+  - **Chapters (5)** : `create_chapter` (first_event_title REQUIS — règle métier slice d, insère event + chapter_events link en chaîne avec rollback), `update_chapter` (status='published' set published_at), `delete_chapter`, `append_chapter_version` (origin manual_edit/upscale, make_final default true), `set_chapter_final_version` (rollback à un draft antérieur).
+  - **Books/Parts (6)** : `create_book`, `update_book`, `delete_book`, `create_part`, `update_part`, `delete_part`.
+  - **Liens (7)** : `link_event_to_chapter` (narrative_rank optionnel), `unlink_event_from_chapter`, `update_chapter_event` (reorder narratif), `link_entity_to_event` (pinned default true), `unlink_entity_from_event`, `link_entity_to_chapter`, `unlink_entity_from_chapter`.
+- **`/agent-activity` UI** ([src/features/agentActivity/AgentActivityScreen.tsx](../src/features/agentActivity/AgentActivityScreen.tsx)) : table paginée (50/page), filtres session (dropdown auto-rempli depuis 1000 rows récentes), target_kind, range (today/7d/30d/all), expand row → JSON payload. Lien "Agent activity →" ajouté dans `MonitoringPanel` header à côté de "View all →" (runs).
+- **Doc setup** : [docs/demo/mcp-server-setup.md](./demo/mcp-server-setup.md) — env vars, mcp inspector smoke, config Claude Desktop, troubleshooting.
+
+### Décisions tranchées
+
+- **Auth = service role key + filtrage applicatif `owner_id`**. RLS bypass mais sécurité app-side. La policy RLS reste définie pour la cohérence (l'UI app utilise le anon key et a besoin de la policy).
+- **`agent_session_id` = uuidv4** généré au démarrage du process. Pas de ULID-ordering, le `created_at` suffit pour ordonner.
+- **Reads non loggés** dans `agent_actions` (signal/bruit). Seuls les writes peuplent la table.
+- **Standard envelope** `{ok, data} | {ok: false, error}` JSON-stringifié dans un text content block. `isError: true` setté côté MCP sur les fail. Uniformité agent-side.
+- **Race-safe upsert** sur `set_entity_field` : INSERT avec `select.single()` puis UPDATE-on-conflict via fetch+merge (code 23505). Identique au pattern de l'app `useUpsertEntityField`.
+- **`create_chapter` first_event_title obligatoire** : enforce la règle métier slice d ("a chapter cannot exist without at least one linked event") au niveau du tool, pas juste documenté dans la guide.
+- **Pas de chat tool exposé** (cf. spec). Le chat de l'app sert l'humain↔LLM ; un agent qui chatte avec lui-même n'a pas de sens.
+- **Pas d'idempotency keys en v1**. Si l'agent réessaie, c'est une nouvelle row. À ajouter si frottement réel.
+- **`list_entity_types` ajouté** au-delà des 17 reads de la spec : indispensable pour que l'agent sache quel `type_id` passer à `create_entity`. Total = 18 reads.
+
+### Validation
+
+- typecheck root (app + mcp-server via tsc -b project references) ✓ · lint 0 erreur (1 warning pré-existant `router.tsx`) ✓ · 120 Vitest ✓ (rien cassé côté app) · build prod ✓
+- **Live validation OK** :
+  - mcp inspector v0.21.x : configuré (Command=`node`, Arguments=`<abspath>/packages/mcp-server/dist/index.js`, env vars dans la section dédiée), 47 tools listés, handshake OK
+  - **Claude Code project-scoped via `.mcp.json`** ([template `.mcp.json.example`](../.mcp.json.example) commité, vrai `.mcp.json` gitignored) — au prochain restart de session les `mcp__world-builder__*` apparaissent dans les tools de l'assistant
+  - Claude Desktop : path JSON est `%APPDATA%\Claude\claude_desktop_config.json` (le folder n'est créé qu'à la première utilisation des dev settings)
+- **Note inspector v0.21.x** : la doc demo a été mise à jour, l'ancien invocation `npx @modelcontextprotocol/inspector --env KEY=VAL ... npx world-builder-mcp` ne marche plus (le flag parser dump `--env` dans le champ Command). Utiliser `npx @modelcontextprotocol/inspector` sans args puis configurer via la sidebar UI.
+
+### À reprendre dans une prochaine session — point d'entrée
+
+**Slice 2a.2 = les 4 intent tools** (`auto_extract_from_note`, `propose_canon_from_chapter`, `upscale_chapter`, `summarize_chapter`).
+
+**Plan exécutable** : **[docs/slice-2a.2-plan.md](./slice-2a.2-plan.md)** ← à lire avant de coder. Tasks ordonnées, contraintes, open questions, estimation ~1h-2h focus.
+
+Une session suffit. Ensuite slice 2b (agents qui consomment), majoritairement documentaire.
+
+---
+
 ## Status (2026-05-02 nuit, slice 1 — Local LLM provider livrée)
 
 **Slice 1 (post-v1, vision v2 IA externe) livrée. V014 appliquée. Smoke Chrome live OK sur la persistance des settings.**
@@ -47,11 +104,24 @@ Voir **[docs/demo/local-llm-setup.md](./demo/local-llm-setup.md)** pour le walkt
 
 ### À reprendre dans une prochaine session — point d'entrée
 
-**Vision v2 IA externe — slice 1 livrée.** Prochaine slice = **2a (MCP server)**, cf. **[docs/post-v1-mcp-server.md](./post-v1-mcp-server.md)**. Migration V015 = table `agent_actions`. Mini-refacto npm workspaces + 49 tools + UI activity. Compter plusieurs sessions.
+**Vision v2 IA externe — slice 1 livrée et committée.** Prochaine session = **slice 2a (MCP server)**, cf. spec figée **[docs/post-v1-mcp-server.md](./post-v1-mcp-server.md)**.
 
-Slice 2b (agents) suit, surtout documentaire, cf. **[docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md)**.
+Démarrage slice 2a, en gros :
 
-User feedback à intégrer après usage local-LLM réel : si Qwen2.5:14b se comporte mal sur les JSON tasks, peut-être ajouter un prompt-strengthening retry (1 retry avec "OUTPUT VALID JSON ONLY" prepended) avant le fallback cloud.
+1. **Préparer la migration V015** (table `agent_actions` + RLS + indexes) — Claude rédige, le user applique avant code.
+2. **Mini-refacto monorepo en npm workspaces** : restructurer en `packages/mcp-server` + `packages/app` (ou garder app à la racine, packages/ pour le seul MCP). Sharing de types `Database` et helpers de queries.
+3. **Serveur MCP base** via `@modelcontextprotocol/sdk` côté Anthropic, transport stdio, validation Zod à la frontière.
+4. **Tools** : ~17 reads + ~28 writes + 4 intents. Mapping direct vers helpers existants côté app. `get_writing_guide` rédigé.
+5. **UI `/agent-activity`** dans l'app pour scroller les writes par session.
+6. **Doc setup** `docs/demo/mcp-server-setup.md`.
+
+Compter plusieurs sessions. Slice 2b (agents qui consomment) suit après, surtout documentaire — cf. **[docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md)**.
+
+### Notes / améliorations possibles post-slice 1 à intégrer si frottement
+
+- **Latence local** ressentie comme attendu sur Qwen3.6:latest (~30B). Si pénible : (a) descendre le modèle d'extract en 7B, (b) streaming SSE pour upscale/summaries (déjà dans `docs/post-v1-local-llm.md` § "À noter post-slice"), (c) split per-task cloud/local plus granulaire.
+- **JSON-strict failures** sur petits modèles locaux : à voir si ça arrive en pratique, peut-être ajouter un retry avec prompt strengthened ("OUTPUT VALID JSON ONLY") avant le fallback cloud manuel.
+- **Mention resolution sémantique** en chapter view (highlighter LLM-based, pas regex) — débloqué économiquement par slice 1.
 
 ---
 
