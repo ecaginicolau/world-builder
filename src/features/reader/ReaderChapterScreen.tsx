@@ -5,7 +5,7 @@ import { useChapterVersions } from '@/lib/queries/chapterVersions';
 import { useEntities } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
 import { resolveColor } from '@/lib/entityColors';
-import { resolveStateAtRank, formatFieldValue } from '@/features/entities/versioning';
+import { CURRENT_RANK_SENTINEL, resolveSnapshotMapAtRank, formatFieldValue } from '@/features/entities/versioning';
 import { supabase } from '@/lib/supabase';
 import type { EntityVersion, FieldDef } from '@/features/entities/types';
 
@@ -116,7 +116,7 @@ export function ReaderChapterScreen() {
         <ReaderBody
           html={finalVersion.text}
           worldId={worldId}
-          chronologicalRank={chapterQ.data.chronological_rank}
+          chronologicalRank={CURRENT_RANK_SENTINEL}
           entities={entitiesQ.data ?? []}
           types={typesQ.data ?? []}
         />
@@ -172,12 +172,15 @@ function ReaderBody({ html, worldId, chronologicalRank, entities, types }: Reade
           .from('entity_versions')
           .select('*')
           .eq('entity_id', entityId)
-          .eq('world_id', worldId)
-          .order('valid_from_rank', { ascending: true });
-        const snap = resolveStateAtRank((vs ?? []) as EntityVersion[], chronologicalRank);
+          .eq('world_id', worldId);
+        const snap = resolveSnapshotMapAtRank(
+          (vs ?? []) as EntityVersion[],
+          chronologicalRank,
+          fields,
+        );
         const out: Record<string, string> = {};
         for (const f of fields) {
-          out[f.name] = formatFieldValue(snap?.snapshot[f.name] ?? null);
+          out[f.name] = formatFieldValue(snap[f.name] ?? null);
         }
         setPopup((p) =>
           p && p.entityId === entityId

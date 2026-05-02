@@ -42,10 +42,13 @@ function textForLevel(
 /**
  * Resolves the PCC slots for a given chapter.
  *
- * Picks the chapters with the largest `chronological_rank` strictly less than
- * `current.chronological_rank`, in descending order, up to `slots.length`.
- * For each picked chapter, applies the slot's level — falling back through
- * `FALLBACK_CHAIN` if the requested summary is null.
+ * Picks the chapters whose **derived chronological rank** (= min linked event
+ * chrono, see `buildChapterChronoMap`) is strictly less than the current
+ * chapter's derived chrono. Sort descending (most recent first), apply the
+ * configured slot levels with fallback.
+ *
+ * Chapters absent from `chapterChrono` (i.e. no linked events) are skipped —
+ * they have no chronological position so they can't precede anything.
  *
  * Slots are emitted in the same order as the configured array (slot[0] = most
  * recent chapter, slot[1] = next older, …). If there are fewer eligible
@@ -54,18 +57,22 @@ function textForLevel(
 export function resolvePreviousChapters(args: {
   current: Chapter;
   allChapters: Chapter[];
+  chapterChrono: Map<string, string>;
   finalVersionByChapter: Map<string, ChapterVersion | null>;
   slots: ContextLevel[];
 }): PccSlot[] {
-  const { current, allChapters, finalVersionByChapter, slots } = args;
+  const { current, allChapters, chapterChrono, finalVersionByChapter, slots } = args;
   if (slots.length === 0) return [];
+  const currentChrono = chapterChrono.get(current.id);
+  if (currentChrono === undefined) return [];
 
   const earlier = allChapters
-    .filter((c) => c.id !== current.id && c.chronological_rank < current.chronological_rank)
-    .sort((a, b) =>
-      a.chronological_rank < b.chronological_rank ? 1 :
-      a.chronological_rank > b.chronological_rank ? -1 : 0,
-    );
+    .map((c) => ({ chapter: c, chrono: chapterChrono.get(c.id) }))
+    .filter((x): x is { chapter: Chapter; chrono: string } =>
+      x.chapter.id !== current.id && x.chrono !== undefined && x.chrono < currentChrono,
+    )
+    .sort((a, b) => (a.chrono < b.chrono ? 1 : a.chrono > b.chrono ? -1 : 0))
+    .map((x) => x.chapter);
 
   const result: PccSlot[] = [];
   for (let i = 0; i < slots.length && i < earlier.length; i++) {

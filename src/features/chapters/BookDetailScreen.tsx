@@ -2,9 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { Link, useParams, useNavigate } from '@tanstack/react-router';
 import { useBook } from '@/lib/queries/books';
 import { useCreatePart, useDeletePart, usePartsByBook } from '@/lib/queries/parts';
-import { useChaptersByPart, useCreateChapter, useDeleteChapter } from '@/lib/queries/chapters';
+import { useChaptersByPart, useCreateChapter, useDeleteChapter, useUpdateChapter } from '@/lib/queries/chapters';
 import { useSession } from '@/features/auth/session';
 import { useConfirm } from '@/lib/useConfirm';
+import { rankForMoveDown, rankForMoveUp } from '@/features/timeline/timelineItems';
 import type { Part } from './types';
 
 export function BookDetailScreen() {
@@ -114,20 +115,42 @@ function PartSection({ part, indexLabel, worldId, onDelete }: PartSectionProps) 
   const navigate = useNavigate();
   const chaptersQ = useChaptersByPart(part.id);
   const createChapter = useCreateChapter();
+  const updateChapter = useUpdateChapter();
   const deleteChapter = useDeleteChapter();
   const confirm = useConfirm();
   const [chapterTitle, setChapterTitle] = useState('');
+  const [firstEventTitle, setFirstEventTitle] = useState('');
+
+  // Sort client-side: Postgres default collation is case-insensitive and would
+  // scramble byte-wise fractional ranks (cf. slice 7 bug fix).
+  const sortedChapters = (chaptersQ.data ?? []).slice().sort((a, b) =>
+    a.reading_rank < b.reading_rank ? -1 :
+    a.reading_rank > b.reading_rank ? 1 : 0,
+  );
+  const chapterRanks = sortedChapters.map((c) => c.reading_rank);
+
+  function onMoveChapter(idx: number, dir: 'up' | 'down') {
+    const newRank = dir === 'up'
+      ? rankForMoveUp(chapterRanks, idx)
+      : rankForMoveDown(chapterRanks, idx);
+    if (!newRank) return;
+    updateChapter.mutate({ id: sortedChapters[idx].id, readingRank: newRank });
+  }
 
   async function onAddChapter(e: FormEvent) {
     e.preventDefault();
     if (session.status !== 'authed') return;
+    const trimmedEvent = firstEventTitle.trim();
+    if (!trimmedEvent) return;
     const c = await createChapter.mutateAsync({
       worldId,
       partId: part.id,
       ownerId: session.session.user.id,
       title: chapterTitle.trim() || null,
+      firstEvent: { title: trimmedEvent },
     });
     setChapterTitle('');
+    setFirstEventTitle('');
     void navigate({
       to: '/worlds/$worldId/chapters/$chapterId',
       params: { worldId, chapterId: c.id },
@@ -151,14 +174,36 @@ function PartSection({ part, indexLabel, worldId, onDelete }: PartSectionProps) 
         </button>
       </header>
 
-      {chaptersQ.data && chaptersQ.data.length > 0 ? (
+      {sortedChapters.length > 0 ? (
         <ul className="divide-y divide-border" data-testid="chapters-list">
-          {chaptersQ.data.map((c, i) => (
+          {sortedChapters.map((c, i) => (
             <li
               key={c.id}
-              className="flex items-center justify-between gap-2"
+              className="flex items-stretch gap-2"
               data-testid="chapter-row"
             >
+              <div className="flex w-7 flex-col items-center justify-center bg-bg-subtle/40">
+                <button
+                  type="button"
+                  onClick={() => onMoveChapter(i, 'up')}
+                  disabled={i === 0}
+                  className="px-1 py-0.5 text-[10px] text-fg-muted hover:text-fg disabled:opacity-30"
+                  title="Move earlier in reading order"
+                  data-testid="chapter-move-up"
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onMoveChapter(i, 'down')}
+                  disabled={i === sortedChapters.length - 1}
+                  className="px-1 py-0.5 text-[10px] text-fg-muted hover:text-fg disabled:opacity-30"
+                  title="Move later in reading order"
+                  data-testid="chapter-move-down"
+                >
+                  ▼
+                </button>
+              </div>
               <Link
                 to="/worlds/$worldId/chapters/$chapterId"
                 params={{ worldId, chapterId: c.id }}
@@ -191,24 +236,37 @@ function PartSection({ part, indexLabel, worldId, onDelete }: PartSectionProps) 
 
       <form
         onSubmit={onAddChapter}
-        className="flex gap-2 border-t border-border p-2"
+        className="space-y-2 border-t border-border p-2"
         data-testid="create-chapter-form"
       >
         <input
           value={chapterTitle}
           onChange={(e) => setChapterTitle(e.target.value)}
           placeholder="New chapter title (optional)"
-          className="flex-1 px-3 py-2 text-sm"
+          className="w-full px-3 py-2 text-sm"
           data-testid="create-chapter-title"
         />
-        <button
-          type="submit"
-          disabled={createChapter.isPending}
-          className="bg-accent px-3 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
-          data-testid="create-chapter-submit"
-        >
-          + Chapter
-        </button>
+        <div className="flex gap-2">
+          <input
+            value={firstEventTitle}
+            onChange={(e) => setFirstEventTitle(e.target.value)}
+            placeholder="First event title — required"
+            className="flex-1 px-3 py-2 text-sm"
+            data-testid="create-chapter-first-event"
+          />
+          <button
+            type="submit"
+            disabled={createChapter.isPending || !firstEventTitle.trim()}
+            className="bg-accent px-3 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
+            data-testid="create-chapter-submit"
+            title={firstEventTitle.trim() ? '' : 'A chapter must retell at least one event.'}
+          >
+            + Chapter
+          </button>
+        </div>
+        <p className="text-[10px] text-fg-muted">
+          Every chapter retells an event on the canonical timeline. Pick a title for that first event — you can rename it later.
+        </p>
       </form>
     </section>
   );

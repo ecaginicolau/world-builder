@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   CURRENT_RANK_SENTINEL,
+  buildEventRailItems,
   buildRankPickerItems,
   coerceFieldValue,
   diffSnapshots,
-  rankAfterChapter,
+  resolveSnapshotAtAnchor,
+  resolveSnapshotAtRank,
+  resolveSnapshotMapAtRank,
   resolveStateAtRank,
   versionLabelForRank,
+  type TimelineAnchor,
 } from './versioning';
-import type { EntityVersion } from './types';
+import type { EntityVersion, FieldDef, Snapshot } from './types';
 import { INIT_RANK } from '@/lib/ranks';
 import type { Chapter } from '@/features/chapters/types';
 import type { TimelineEvent } from '@/features/timeline/types';
@@ -19,12 +23,17 @@ const v = (id: string, rank: string, snapshot: Record<string, unknown> = {}): En
   world_id: 'w',
   owner_id: 'o',
   valid_from_rank: rank,
-  snapshot: snapshot as EntityVersion['snapshot'],
+  snapshot: snapshot as Snapshot,
   source_note_id: null,
-  source_chapter_id: null,
+  source_event_id: null,
   note_excerpt: null,
   created_at: '2026-01-01T00:00:00Z',
 });
+
+const F: FieldDef[] = [
+  { name: 'age', kind: 'int' },
+  { name: 'bio', kind: 'string' },
+];
 
 describe('resolveStateAtRank', () => {
   it('returns null when no versions', () => {
@@ -53,6 +62,91 @@ describe('resolveStateAtRank', () => {
   });
 });
 
+describe('resolveSnapshotAtRank (per-field)', () => {
+  it('returns null source when the field has never been set', () => {
+    const versions = [v('a', INIT_RANK, { bio: 'femme' })];
+    const r = resolveSnapshotAtRank(versions, '05', F);
+    expect(r.get('age')?.source).toBeNull();
+    expect(r.get('age')?.value).toBeNull();
+  });
+
+  it('walks per-field and picks the latest explicit set ≤ rank', () => {
+    const versions = [
+      v('a', INIT_RANK, { age: 20, bio: 'femme' }),
+      v('b', '05', { age: 21 }), // age changes here
+      v('c', '08', { bio: 'femme, baronne' }), // bio changes later
+    ];
+    // At rank '03' (before any event): inherit init
+    expect(resolveSnapshotAtRank(versions, '03', F).get('age')?.value).toBe(20);
+    expect(resolveSnapshotAtRank(versions, '03', F).get('bio')?.value).toBe('femme');
+    // At rank '06' (after b but before c): age=21 from b, bio still inherited from init
+    expect(resolveSnapshotAtRank(versions, '06', F).get('age')?.value).toBe(21);
+    expect(resolveSnapshotAtRank(versions, '06', F).get('age')?.source?.id).toBe('b');
+    expect(resolveSnapshotAtRank(versions, '06', F).get('bio')?.value).toBe('femme');
+    expect(resolveSnapshotAtRank(versions, '06', F).get('bio')?.source?.id).toBe('a');
+    // At rank '09' (after c): age=21 from b, bio updated by c
+    expect(resolveSnapshotAtRank(versions, '09', F).get('bio')?.value).toBe('femme, baronne');
+    expect(resolveSnapshotAtRank(versions, '09', F).get('bio')?.source?.id).toBe('c');
+  });
+
+  it('CURRENT_RANK_SENTINEL picks the latest set per field', () => {
+    const versions = [
+      v('a', INIT_RANK, { age: 20 }),
+      v('b', '05', { age: 21 }),
+      v('c', '08', { bio: 'baronne' }),
+    ];
+    const r = resolveSnapshotAtRank(versions, CURRENT_RANK_SENTINEL, F);
+    expect(r.get('age')?.value).toBe(21);
+    expect(r.get('bio')?.value).toBe('baronne');
+  });
+
+  it('an empty {} version contributes nothing', () => {
+    const versions = [v('a', INIT_RANK, { age: 20 }), v('b', '05', {})];
+    expect(resolveSnapshotAtRank(versions, '06', F).get('age')?.source?.id).toBe('a');
+  });
+});
+
+describe('resolveSnapshotMapAtRank', () => {
+  it('returns a flat record without keys for unset fields', () => {
+    const versions = [v('a', INIT_RANK, { bio: 'femme' })];
+    const m = resolveSnapshotMapAtRank(versions, '05', F);
+    expect(m.bio).toBe('femme');
+    expect('age' in m).toBe(false);
+  });
+});
+
+describe('resolveSnapshotAtAnchor', () => {
+  const ev = (id: string, rank: string): TimelineEvent => ({
+    id, world_id: 'w', owner_id: 'o', chronological_rank: rank, title: id,
+    description: null, description_html: null, tags: [], source_note_id: null,
+    created_at: '', updated_at: '',
+  });
+  const items = buildEventRailItems([ev('e1', '03'), ev('e2', '07')]);
+
+  it('init anchor returns the init snapshot only', () => {
+    const versions = [
+      v('a', INIT_RANK, { age: 20, bio: 'femme' }),
+      v('b', '03', { age: 21 }),
+    ];
+    const r = resolveSnapshotAtAnchor({ kind: 'init' }, items, versions, F);
+    expect(r.get('age')?.value).toBe(20);
+    expect(r.get('age')?.source?.id).toBe('a');
+  });
+
+  it('after X anchor uses next item rank as upper bound', () => {
+    const versions = [
+      v('a', INIT_RANK, { age: 20 }),
+      v('b', '03', { age: 21 }),
+      v('c', '07', { age: 22 }),
+    ];
+    const anchor: TimelineAnchor = { kind: 'after', item: items[0] };
+    const r = resolveSnapshotAtAnchor(anchor, items, versions, F);
+    // At "after e1" we should see age=21 (from b at rank 03), not 22 (from c at 07).
+    expect(r.get('age')?.value).toBe(21);
+    expect(r.get('age')?.source?.id).toBe('b');
+  });
+});
+
 describe('versionLabelForRank', () => {
   const chapter = (id: string, rank: string, title: string): Chapter =>
     ({
@@ -61,7 +155,6 @@ describe('versionLabelForRank', () => {
       world_id: 'w',
       owner_id: 'o',
       reading_rank: rank,
-      chronological_rank: rank,
       title,
       final_version_id: null,
       summary_s: null,
@@ -69,6 +162,7 @@ describe('versionLabelForRank', () => {
       summary_l: null,
       status: 'draft',
       published_at: null,
+      last_analyzed_at: null,
       source_note_id: null,
       created_at: '',
       updated_at: '',
@@ -80,14 +174,20 @@ describe('versionLabelForRank', () => {
     chronological_rank: rank,
     title,
     description: null,
+    description_html: null,
     tags: [],
     source_note_id: null,
     created_at: '',
     updated_at: '',
   });
+  const chapterChrono = new Map<string, string>([
+    ['c1', '03'],
+    ['c2', '07'],
+  ]);
   const items = buildRankPickerItems(
     [chapter('c1', '03', 'La Forteresse'), chapter('c2', '07', 'Le Retour')],
     [event('e1', '05', 'La Bataille')],
+    chapterChrono,
   );
 
   it('returns "initial" for INIT_RANK', () => {
@@ -109,83 +209,17 @@ describe('versionLabelForRank', () => {
   });
 });
 
-describe('buildRankPickerItems', () => {
-  it('sorts chapters and events together by chronological_rank', () => {
-    const items = buildRankPickerItems(
-      [
-        {
-          id: 'c1',
-          part_id: 'p',
-          world_id: 'w',
-          owner_id: 'o',
-          reading_rank: '07',
-          chronological_rank: '07',
-          title: 'C2',
-          final_version_id: null,
-          summary_s: null,
-          summary_m: null,
-          summary_l: null,
-          status: 'draft',
-          published_at: null,
-          source_note_id: null,
-          created_at: '',
-          updated_at: '',
-        } as Chapter,
-      ],
-      [
-        {
-          id: 'e1',
-          world_id: 'w',
-          owner_id: 'o',
-          chronological_rank: '03',
-          title: 'E1',
-          description: null,
-          tags: [],
-          source_note_id: null,
-          created_at: '',
-          updated_at: '',
-        },
-      ],
-    );
-    expect(items.map((i) => i.rank)).toEqual(['03', '07']);
-    expect(items[0].kind).toBe('event');
-    expect(items[1].kind).toBe('chapter');
-  });
-});
-
-describe('rankAfterChapter', () => {
-  const item = (rank: string): { kind: 'chapter'; rank: string; title: string | null } => ({
-    kind: 'chapter',
-    rank,
-    title: null,
+describe('buildEventRailItems', () => {
+  const ev = (id: string, rank: string): TimelineEvent => ({
+    id, world_id: 'w', owner_id: 'o', chronological_rank: rank, title: id,
+    description: null, description_html: null, tags: [], source_note_id: null,
+    created_at: '', updated_at: '',
   });
 
-  it('returns a rank strictly between chapter and the next timeline item', () => {
-    const items = [item('05'), item('07')];
-    const r = rankAfterChapter('05', items, []);
-    expect(r > '05').toBe(true);
-    expect(r < '07').toBe(true);
-  });
-
-  it('uses an existing later version as upper bound when smaller than next timeline item', () => {
-    const items = [item('05'), item('09')];
-    const existing = [v('x', '07')];
-    const r = rankAfterChapter('05', items, existing);
-    expect(r > '05').toBe(true);
-    expect(r < '07').toBe(true);
-  });
-
-  it('produces a fresh rank on repeated calls when the previous result is in the versions list', () => {
-    const items = [item('05'), item('09')];
-    const r1 = rankAfterChapter('05', items, []);
-    const r2 = rankAfterChapter('05', items, [v('x', r1)]);
-    expect(r2 > '05').toBe(true);
-    expect(r2 < r1).toBe(true);
-  });
-
-  it('uses an open upper bound when nothing follows the chapter', () => {
-    const r = rankAfterChapter('05', [item('05')], []);
-    expect(r > '05').toBe(true);
+  it('skips chapters and sorts events by rank', () => {
+    const items = buildEventRailItems([ev('e2', 'b'), ev('e1', 'a')]);
+    expect(items.map((i) => i.id)).toEqual(['e1', 'e2']);
+    expect(items.every((i) => i.kind === 'event')).toBe(true);
   });
 });
 

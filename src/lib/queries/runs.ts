@@ -14,7 +14,7 @@ export interface LogRunInput {
   worldId: string;
   ownerId: string;
   kind: RunKind;
-  parentKind?: 'note' | 'chapter' | 'thread' | null;
+  parentKind?: 'note' | 'chapter' | 'thread' | 'event' | null;
   parentId?: string | null;
   model: string;
   provider: string;

@@ -34,7 +34,7 @@ export function useChaptersByWorld(worldId: string) {
         .from('chapters')
         .select('*')
         .eq('world_id', worldId)
-        .order('chronological_rank', { ascending: true });
+        .order('reading_rank', { ascending: true });
       if (error) throw error;
       return (data ?? []) as Chapter[];
     },
@@ -66,12 +66,19 @@ interface CreateChapterInput {
   /** Initial draft text (becomes the v0 chapter_versions row). */
   draft?: string;
   sourceNoteId?: string | null;
+  /**
+   * Required by the slice (d) UX rule "every chapter has at least one event".
+   * If provided, the mutation inserts the event + chapter_events link in the
+   * same flow. Pass null only for programmatic flows that do their own linking
+   * (e.g. "retell this existing event as a new chapter").
+   */
+  firstEvent?: { title: string; description?: string | null } | null;
 }
 
 export function useCreateChapter() {
   const qc = useQueryClient();
   return useMutation<Chapter, Error, CreateChapterInput>({
-    mutationFn: async ({ worldId, partId, ownerId, title, draft, sourceNoteId }) => {
+    mutationFn: async ({ worldId, partId, ownerId, title, draft, sourceNoteId, firstEvent }) => {
       const { data: siblings, error: selErr } = await supabase
         .from('chapters')
         .select('reading_rank')
@@ -80,7 +87,6 @@ export function useCreateChapter() {
       const reading_rank = nextRankAfter(
         (siblings ?? []).map((s: { reading_rank: string }) => ({ rank: s.reading_rank })),
       );
-      const chronological_rank = reading_rank;
 
       // 1. Insert the chapter row.
       const { data: chapter, error } = await supabase
@@ -90,7 +96,6 @@ export function useCreateChapter() {
           part_id: partId,
           owner_id: ownerId,
           reading_rank,
-          chronological_rank,
           title: title?.trim() || null,
           source_note_id: sourceNoteId ?? null,
         })
@@ -121,12 +126,48 @@ export function useCreateChapter() {
         .select('*')
         .single();
       if (upErr) throw upErr;
+
+      // 4. Insert the first event + link, if requested.
+      if (firstEvent && firstEvent.title.trim()) {
+        // Compute the new event chrono = end of world chrono.
+        const { data: worldEvents, error: weErr } = await supabase
+          .from('events')
+          .select('chronological_rank')
+          .eq('world_id', worldId);
+        if (weErr) throw weErr;
+        const eventChronoRank = nextRankAfter(
+          (worldEvents ?? []).map((e: { chronological_rank: string }) => ({ rank: e.chronological_rank })),
+        );
+        const { data: ev, error: evErr } = await supabase
+          .from('events')
+          .insert({
+            world_id: worldId,
+            owner_id: ownerId,
+            title: firstEvent.title.trim(),
+            chronological_rank: eventChronoRank,
+            description: firstEvent.description?.trim() || null,
+          })
+          .select('id')
+          .single();
+        if (evErr) throw evErr;
+        const { error: ceErr } = await supabase.from('chapter_events').insert({
+          chapter_id: chapter.id,
+          event_id: ev.id,
+          world_id: worldId,
+          owner_id: ownerId,
+          narrative_rank: START_RANK,
+        });
+        if (ceErr) throw ceErr;
+      }
       return updated as Chapter;
     },
     onSuccess: (c) => {
       void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(c.part_id) });
       void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(c.world_id) });
       void qc.invalidateQueries({ queryKey: chapterVersionsKeys.byChapter(c.id) });
+      void qc.invalidateQueries({ queryKey: ['events', 'byWorld', c.world_id] });
+      void qc.invalidateQueries({ queryKey: ['chapter_events', 'byChapter', c.id] });
+      void qc.invalidateQueries({ queryKey: ['chapter_events', 'byWorld', c.world_id] });
     },
   });
 }
@@ -139,21 +180,23 @@ export function useUpdateChapter() {
     {
       id: string;
       title?: string | null;
-      chronologicalRank?: string;
+      readingRank?: string;
       finalVersionId?: string;
       summaryS?: string | null;
       summaryM?: string | null;
       summaryL?: string | null;
       status?: 'draft' | 'published';
+      lastAnalyzedAt?: string | null;
     }
   >({
     mutationFn: async ({
-      id, title, chronologicalRank, finalVersionId,
+      id, title, readingRank, finalVersionId,
       summaryS, summaryM, summaryL, status,
+      lastAnalyzedAt,
     }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title;
-      if (chronologicalRank !== undefined) patch.chronological_rank = chronologicalRank;
+      if (readingRank !== undefined) patch.reading_rank = readingRank;
       if (finalVersionId !== undefined) patch.final_version_id = finalVersionId;
       if (summaryS !== undefined) patch.summary_s = summaryS;
       if (summaryM !== undefined) patch.summary_m = summaryM;
@@ -162,6 +205,7 @@ export function useUpdateChapter() {
         patch.status = status;
         patch.published_at = status === 'published' ? new Date().toISOString() : null;
       }
+      if (lastAnalyzedAt !== undefined) patch.last_analyzed_at = lastAnalyzedAt;
       const { data, error } = await supabase
         .from('chapters')
         .update(patch)

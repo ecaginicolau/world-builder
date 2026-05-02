@@ -198,7 +198,7 @@ export function ChatPanel({
         worldId,
         ownerId,
         kind: 'chat',
-        parentKind: activeThread ? 'thread' : (parentKind as 'note' | 'chapter'),
+        parentKind: activeThread ? 'thread' : (parentKind as 'note' | 'chapter' | 'event'),
         parentId: activeThread?.id ?? parentId,
         model: 'unknown',
         provider: getLlm().name,

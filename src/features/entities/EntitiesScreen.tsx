@@ -8,12 +8,14 @@ import { useCreateEntity, useEntities } from '@/lib/queries/entities';
 import { useEntityVersionsByWorld } from '@/lib/queries/entityVersions';
 import { useChaptersByWorld } from '@/lib/queries/chapters';
 import { useEvents } from '@/lib/queries/events';
+import { useChapterEventsByWorld } from '@/lib/queries/chapterEvents';
+import { buildChapterChronoMap } from '@/features/timeline/chronoDerive';
 import {
   CURRENT_RANK_SENTINEL,
   buildRankPickerItems,
   formatFieldValue,
   rankPickerLabel,
-  resolveStateAtRank,
+  resolveSnapshotMapAtRank,
 } from './versioning';
 import type { Entity, EntityType, EntityVersion, FieldDef, Snapshot } from './types';
 import { EntityTypesEditorModal } from './EntityTypesEditorModal';
@@ -29,6 +31,7 @@ export function EntitiesScreen() {
   const versionsQ = useEntityVersionsByWorld(worldId);
   const chaptersQ = useChaptersByWorld(worldId);
   const eventsQ = useEvents(worldId);
+  const chapterEventsQ = useChapterEventsByWorld(worldId);
   const createEntity = useCreateEntity();
 
   const [newEntityName, setNewEntityName] = useState('');
@@ -75,16 +78,22 @@ export function EntitiesScreen() {
     return map;
   }, [versionsQ.data]);
 
+  const chapterChrono = useMemo(
+    () => buildChapterChronoMap(chapterEventsQ.data ?? [], eventsQ.data ?? []),
+    [chapterEventsQ.data, eventsQ.data],
+  );
   const rankItems = useMemo(
-    () => buildRankPickerItems(chaptersQ.data ?? [], eventsQ.data ?? []),
-    [chaptersQ.data, eventsQ.data],
+    () => buildRankPickerItems(chaptersQ.data ?? [], eventsQ.data ?? [], chapterChrono),
+    [chaptersQ.data, eventsQ.data, chapterChrono],
   );
 
   const decoratedEntities = useMemo(() => {
     const list = entitiesQ.data ?? [];
     return list.map((e) => {
       const versions = versionsByEntity.get(e.id) ?? [];
-      const state = resolveStateAtRank(versions, rankCursor) ?? null;
+      const type = typesById.get(e.entity_type_id);
+      const fields = type?.fields ?? [];
+      const snapshot = resolveSnapshotMapAtRank(versions, rankCursor, fields);
       const lastUpdated = versions.reduce<string>(
         (acc, v) => (v.created_at > acc ? v.created_at : acc),
         '',
@@ -94,13 +103,13 @@ export function EntitiesScreen() {
           acc === null || v.valid_from_rank < acc ? v.valid_from_rank : acc,
         null,
       );
-      return { entity: e, versions, state, lastUpdated, firstRank };
+      return { entity: e, versions, snapshot, hasVersions: versions.length > 0, lastUpdated, firstRank };
     });
-  }, [entitiesQ.data, versionsByEntity, rankCursor]);
+  }, [entitiesQ.data, versionsByEntity, rankCursor, typesById]);
 
   const beforeTypeFilter = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return decoratedEntities.filter(({ entity, state }) => {
+    return decoratedEntities.filter(({ entity, snapshot }) => {
       if (q) {
         const haystack = [entity.name, ...(entity.aliases ?? [])]
           .join('\n')
@@ -113,7 +122,7 @@ export function EntitiesScreen() {
           (f) => f.name === 'alive' && f.kind === 'bool',
         );
         if (aliveField) {
-          const alive = state?.snapshot?.alive;
+          const alive = snapshot.alive;
           if (alive === false) return false;
         }
       }
@@ -357,8 +366,8 @@ export function EntitiesScreen() {
                         worldId={worldId}
                         entity={row.entity}
                         type={type}
-                        snapshot={row.state?.snapshot ?? {}}
-                        hasState={!!row.state}
+                        snapshot={row.snapshot}
+                        hasState={row.hasVersions}
                       />
                     ))}
                   </ul>

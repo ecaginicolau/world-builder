@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ChatThread } from '@/features/notes/types';
 
-export type ThreadParentKind = 'note' | 'chapter' | 'entity';
+export type ThreadParentKind = 'note' | 'chapter' | 'entity' | 'event';
 
 export const threadsKeys = {
   byParent: (kind: ThreadParentKind, id: string) =>

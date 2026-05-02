@@ -44,12 +44,14 @@ export function PromoteToChapterModal({
 
   const [partId, setPartId] = useState<string>('');
   const [title, setTitle] = useState<string>(noteTitle ?? '');
+  const [firstEventTitle, setFirstEventTitle] = useState<string>(noteTitle ?? '');
   const [archiveAfter, setArchiveAfter] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setTitle(noteTitle ?? '');
+    setFirstEventTitle(noteTitle ?? '');
     setError(null);
     if (!partId && partsQ.data && partsQ.data.length > 0) {
       setPartId(partsQ.data[0].id);
@@ -65,6 +67,11 @@ export function PromoteToChapterModal({
       setError('Pick a part to put the chapter under.');
       return;
     }
+    const trimmedEvent = firstEventTitle.trim();
+    if (!trimmedEvent) {
+      setError('Give a title for the first event this chapter will retell.');
+      return;
+    }
     try {
       const chapter = await createChapter.mutateAsync({
         worldId,
@@ -73,6 +80,7 @@ export function PromoteToChapterModal({
         title: title.trim() || null,
         draft: noteContent,
         sourceNoteId: noteId,
+        firstEvent: { title: trimmedEvent },
       });
       void logNotePromotion({
         noteId,
@@ -144,6 +152,19 @@ export function PromoteToChapterModal({
                 className="w-full px-3 py-2 text-sm"
                 data-testid="promote-title"
               />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs text-fg-muted">First event title <span className="text-red-400">*</span></span>
+              <input
+                value={firstEventTitle}
+                onChange={(e) => setFirstEventTitle(e.target.value)}
+                placeholder="The canonical event this chapter retells"
+                className="w-full px-3 py-2 text-sm"
+                data-testid="promote-first-event-title"
+              />
+              <span className="text-[10px] text-fg-muted">
+                Every chapter must point at one event. Pre-filled from the note title — edit if needed.
+              </span>
             </label>
             <label className="flex items-center gap-2 text-xs text-fg-muted">
               <input

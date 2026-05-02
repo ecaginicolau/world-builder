@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useChaptersByWorld } from '@/lib/queries/chapters';
 import { useEvents, useCreateEvent } from '@/lib/queries/events';
 import { logNotePromotion } from '@/lib/queries/notePromotions';
 import { useSession } from '@/features/auth/session';
@@ -25,7 +24,6 @@ export function PromoteToEventModal({
   noteContent,
 }: Props) {
   const session = useSession();
-  const chaptersQ = useChaptersByWorld(worldId);
   const eventsQ = useEvents(worldId);
   const createEvent = useCreateEvent();
   const navigate = useNavigate();
@@ -52,10 +50,7 @@ export function PromoteToEventModal({
       return;
     }
     try {
-      const allRanks = [
-        ...(chaptersQ.data ?? []).map((c) => ({ rank: c.chronological_rank })),
-        ...(eventsQ.data ?? []).map((ev) => ({ rank: ev.chronological_rank })),
-      ];
+      const allRanks = (eventsQ.data ?? []).map((ev) => ({ rank: ev.chronological_rank }));
       const rank = nextRankAfter(allRanks);
       const tags = tagsInput
         .split(',')

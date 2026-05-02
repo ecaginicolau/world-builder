@@ -15,11 +15,18 @@ import { useWorld } from '@/lib/queries/worlds';
 import { useEntities } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
 import { useChapterParticipants } from '@/lib/queries/chapterParticipants';
+import { useEvents } from '@/lib/queries/events';
+import { useChapterEvents, useChapterEventsByWorld } from '@/lib/queries/chapterEvents';
 import { useUserSettings } from '@/lib/queries/userSettings';
 import { useSession } from '@/features/auth/session';
 import { htmlToPlainText } from '@/lib/html';
 import { resolveColor } from '@/lib/entityColors';
-import { resolveStateAtRank, formatFieldValue } from '@/features/entities/versioning';
+import {
+  CURRENT_RANK_SENTINEL,
+  resolveSnapshotMapAtRank,
+  formatFieldValue,
+} from '@/features/entities/versioning';
+import { buildChapterChronoMap } from '@/features/timeline/chronoDerive';
 import { NoteEditor, type NoteEditorHandle } from '@/features/notes/NoteEditor';
 import { ChatPanel } from '@/features/notes/ChatPanel';
 import { LinkedEntitiesPanel } from '@/features/notes/NoteEntitiesPanel';
@@ -29,6 +36,7 @@ import { useChapterLinkSource } from '@/features/notes/linkSources';
 import { VersionsPanel } from './VersionsPanel';
 import { ProposeUpdatesModal } from './ProposeUpdatesModal';
 import { SummaryPanel } from './SummaryPanel';
+import { EventsCoveredPanel } from './EventsCoveredPanel';
 import { formatPccBlock, resolvePreviousChapters } from './pcc';
 import { getUpscaler, type UpscaleEntityCard } from '@/lib/llm/upscale';
 import { getSummarizer, type SummaryLength } from '@/lib/llm/summaries';
@@ -55,6 +63,9 @@ export function ChapterScreen() {
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
   const participantsQ = useChapterParticipants(chapterId);
+  const eventsQ = useEvents(worldId);
+  const chapterEventsQ = useChapterEvents(chapterId);
+  const allChapterEventsQ = useChapterEventsByWorld(worldId);
   const settingsQ = useUserSettings();
   const linkSource = useChapterLinkSource(chapterId);
   const updateChapter = useUpdateChapter();
@@ -83,6 +94,16 @@ export function ChapterScreen() {
     () => versions.find((v) => v.id === selectedVersionId) ?? finalVersion,
     [versions, selectedVersionId, finalVersion],
   );
+
+  // Derived chronological rank for every chapter in the world (= min linked event chrono).
+  const chapterChrono = useMemo(
+    () => buildChapterChronoMap(allChapterEventsQ.data ?? [], eventsQ.data ?? []),
+    [allChapterEventsQ.data, eventsQ.data],
+  );
+  const currentChrono = chapterChrono.get(chapterId);
+  // Used to resolve entity cards "as the chapter sees the world" — fall back to
+  // current state if the chapter has no events linked yet.
+  const cardResolutionRank = currentChrono ?? CURRENT_RANK_SENTINEL;
 
   // Default selection = final, when versions load.
   useEffect(() => {
@@ -170,9 +191,6 @@ export function ChapterScreen() {
       existingVersions: versions,
     });
     setDirty(false);
-    // The new version is now final; refetch will set chapter.final_version_id.
-    // Select it once it lands in the cache.
-    // We rely on versionsQ refresh.
   }
 
   // After a new version is created, auto-select & follow it (effect on versions list growth).
@@ -194,7 +212,7 @@ export function ChapterScreen() {
     if (session.status !== 'authed' || !chapterQ.data || !finalVersion) return;
     setUpscaling(true);
     try {
-      // Resolve entity cards at chapter rank.
+      // Resolve entity cards at the chapter's derived chrono (or current state).
       const cards: UpscaleEntityCard[] = [];
       const typesById = new Map((typesQ.data ?? []).map((t) => [t.id, t]));
       for (const link of participantsQ.data ?? []) {
@@ -205,15 +223,15 @@ export function ChapterScreen() {
         const { data: vs } = await supabase
           .from('entity_versions')
           .select('*')
-          .eq('entity_id', e.id)
-          .order('valid_from_rank', { ascending: true });
-        const snap = resolveStateAtRank(
+          .eq('entity_id', e.id);
+        const snap = resolveSnapshotMapAtRank(
           (vs ?? []) as EntityVersion[],
-          chapterQ.data.chronological_rank,
+          cardResolutionRank,
+          fields,
         );
         const snapshot: Record<string, string> = {};
         for (const f of fields) {
-          snapshot[f.name] = formatFieldValue(snap?.snapshot[f.name] ?? null);
+          snapshot[f.name] = formatFieldValue(snap[f.name] ?? null);
         }
         cards.push({ id: e.id, name: e.name, type: t?.name ?? 'Unknown', snapshot });
       }
@@ -222,7 +240,7 @@ export function ChapterScreen() {
         includePcc,
         worldId,
         currentChapterId: chapterId,
-        currentRank: chapterQ.data.chronological_rank,
+        chapterChrono,
         allChapters: worldChaptersQ.data ?? [],
         configuredSlots: worldQ.data?.previous_chapter_context ?? [],
       });
@@ -251,7 +269,6 @@ export function ChapterScreen() {
         usage: result.tokensUsed,
         inputSummary: { entityCount: cards.length, promptLength: userPrompt.length },
       });
-      // Wrap the LLM text output (plain) in basic <p> tags so Tiptap renders it cleanly.
       const text = result.text
         .split(/\n{2,}/)
         .map((para) => `<p>${escapeHtml(para.trim())}</p>`)
@@ -344,10 +361,18 @@ export function ChapterScreen() {
     );
   }
 
-  // For draft (v0): use updateVersionText to persist edits in place (the v0 IS the editable workspace).
-  // For other origins: edits create a new manual_edit version on Save.
-  const isEditingDraft = selectedVersion.origin === 'draft';
+  // Versions whose text is the user's own — we autosave in place (no new
+  // row per keystroke). Upscale rows stay frozen so their LLM output remains
+  // recoverable; editing them goes through "Save as new version".
+  const isEditableInPlace =
+    selectedVersion.origin === 'draft' || selectedVersion.origin === 'manual_edit';
+  const isOnManualEdit = selectedVersion.origin === 'manual_edit';
   const isPublished = chapterQ.data.status === 'published';
+  const noEventsLinked = (chapterEventsQ.data ?? []).length === 0;
+  const lastAnalyzedAt = chapterQ.data.last_analyzed_at;
+  const finalUpdatedAt = finalVersion?.updated_at ?? finalVersion?.created_at;
+  const proseChangedSinceAnalysis =
+    !!lastAnalyzedAt && !!finalUpdatedAt && finalUpdatedAt > lastAnalyzedAt;
 
   async function onTogglePublished() {
     if (!chapterQ.data) return;
@@ -371,7 +396,7 @@ export function ChapterScreen() {
       setDirty(false);
       return;
     }
-    if (isEditingDraft && session.status === 'authed') {
+    if (isEditableInPlace && session.status === 'authed') {
       updateVersionText.mutate({
         id: selectedVersion!.id,
         chapterId,
@@ -381,6 +406,22 @@ export function ChapterScreen() {
     } else {
       setDirty(true);
     }
+  }
+
+  async function onSnapshotManualEdit() {
+    if (session.status !== 'authed' || !selectedVersion) return;
+    // Read the editor's current HTML synchronously so a 400ms debounced
+    // autosave that hasn't fired yet doesn't get truncated out.
+    const text = editorRef.current?.getHTML() ?? selectedVersion.text;
+    await createVersion.mutateAsync({
+      chapterId,
+      worldId,
+      ownerId: session.session.user.id,
+      origin: 'manual_edit',
+      text,
+      parentVersionId: selectedVersion.id,
+      existingVersions: versions,
+    });
   }
 
   return (
@@ -395,6 +436,24 @@ export function ChapterScreen() {
           ← Books
         </Link>
         <div className="flex items-center gap-2">
+          {noEventsLinked ? (
+            <span
+              className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-mono uppercase text-amber-300"
+              data-testid="no-events-badge"
+              title="Add at least one event in the left panel — without events this chapter is hidden from the timeline."
+            >
+              No events linked
+            </span>
+          ) : null}
+          {proseChangedSinceAnalysis ? (
+            <span
+              className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-xs font-mono uppercase text-sky-300"
+              data-testid="prose-changed-badge"
+              title={`Prose changed since last canon analysis on ${new Date(lastAnalyzedAt!).toLocaleString()}.`}
+            >
+              Prose changed
+            </span>
+          ) : null}
           {isPublished ? (
             <span
               className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-mono uppercase text-emerald-300"
@@ -421,10 +480,10 @@ export function ChapterScreen() {
             onClick={() => setProposeOpen(true)}
             disabled={isPublished}
             className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel disabled:cursor-not-allowed disabled:opacity-50"
-            title={isPublished ? 'Unpublish to propose updates' : undefined}
-            data-testid="propose-updates"
+            title={isPublished ? 'Unpublish to propose canon' : undefined}
+            data-testid="propose-canon"
           >
-            Propose updates
+            Propose canon
           </button>
           <button
             type="button"
@@ -447,8 +506,9 @@ export function ChapterScreen() {
         data-testid="chapter-title"
       />
 
-      <div className="grid min-h-0 flex-1 gap-4 grid-cols-1 md:grid-cols-[240px_1fr_320px]">
+      <div className="grid min-h-0 flex-1 gap-4 grid-cols-1 md:grid-cols-[260px_1fr_320px]">
         <aside className="order-2 flex min-h-0 flex-col gap-4 overflow-y-auto md:order-1">
+          <EventsCoveredPanel worldId={worldId} chapterId={chapterId} />
           <LinkedEntitiesPanel worldId={worldId} source={linkSource} />
           <DetectedEntitiesPanel
             worldId={worldId}
@@ -518,9 +578,12 @@ export function ChapterScreen() {
                   onUpscale={onUpscale}
                   upscalePending={upscaling}
                   upscaleError={upscaleError}
-                  dirty={dirty && !isEditingDraft}
+                  dirty={dirty && !isEditableInPlace}
                   onSaveManualEdit={onSaveManualEdit}
                   saveManualPending={createVersion.isPending}
+                  showSnapshotButton={isOnManualEdit}
+                  onSnapshot={() => void onSnapshotManualEdit()}
+                  snapshotPending={createVersion.isPending}
                   pccSlotCount={worldQ.data?.previous_chapter_context.length ?? 0}
                   readOnly={isPublished}
                 />
@@ -556,7 +619,7 @@ export function ChapterScreen() {
                       includePcc: true,
                       worldId,
                       currentChapterId: chapterId,
-                      currentRank: chapterQ.data.chronological_rank,
+                      chapterChrono,
                       allChapters: worldChaptersQ.data ?? [],
                       configuredSlots: worldQ.data?.previous_chapter_context ?? [],
                     });
@@ -592,21 +655,24 @@ async function buildPccSlots(args: {
   includePcc: boolean;
   worldId: string;
   currentChapterId: string;
-  currentRank: string;
+  chapterChrono: Map<string, string>;
   allChapters: import('./types').Chapter[];
   configuredSlots: import('@/features/worlds/types').ContextLevel[];
 }) {
-  const { includePcc, worldId, currentChapterId, currentRank, allChapters, configuredSlots } = args;
+  const { includePcc, worldId, currentChapterId, chapterChrono, allChapters, configuredSlots } = args;
   if (!includePcc || configuredSlots.length === 0) return [];
+  const currentChrono = chapterChrono.get(currentChapterId);
+  if (currentChrono === undefined) return [];
 
   // Pick the eligible earlier chapters (mirroring resolvePreviousChapters' logic
   // so we only fetch the final-version texts we may need).
   const earlier = allChapters
-    .filter((c) => c.id !== currentChapterId && c.chronological_rank < currentRank)
-    .sort((a, b) =>
-      a.chronological_rank < b.chronological_rank ? 1 :
-      a.chronological_rank > b.chronological_rank ? -1 : 0,
+    .map((c) => ({ chapter: c, chrono: chapterChrono.get(c.id) }))
+    .filter((x): x is { chapter: import('./types').Chapter; chrono: string } =>
+      x.chapter.id !== currentChapterId && x.chrono !== undefined && x.chrono < currentChrono,
     )
+    .sort((a, b) => (a.chrono < b.chrono ? 1 : a.chrono > b.chrono ? -1 : 0))
+    .map((x) => x.chapter)
     .slice(0, configuredSlots.length);
   if (earlier.length === 0) return [];
 
@@ -633,6 +699,7 @@ async function buildPccSlots(args: {
   return resolvePreviousChapters({
     current,
     allChapters,
+    chapterChrono,
     finalVersionByChapter: versionsById,
     slots: configuredSlots,
   });

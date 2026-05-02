@@ -2,13 +2,83 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-02 PM, chunk (d) Event upgrade + canonical pivot livré)
+
+**Chunk (d) du plan post-v1 livré end-to-end. V012 appliquée. Smoke Chrome live OpenAI green.**
+
+Voir **[docs/demo/slice-d-events-canon.md](./demo/slice-d-events-canon.md)** pour le walkthrough.
+
+### Migration V012 (appliquée)
+
+- `chapters.chronological_rank` → DROP (chrono d'un chapter = dérivé de `min(linked event chrono)`)
+- `chapters.last_analyzed_at` → ADD (nouveau badge "Prose changed since last canon analysis")
+- `entity_versions.source_chapter_id` → DROP, `source_chapter_version_id` → DROP IF EXISTS
+- `entity_versions.source_event_id` → ADD + index partial
+- `entity_versions_single_init` unique partial : exactement 1 version sans event source par entity
+- `truncate entity_versions` (data de test, on reset)
+- `chapter_events (chapter_id, event_id, world_id, owner_id, narrative_rank)` — M:M, cascade des deux côtés, RLS owner-scoped
+- `event_participants (event_id, entity_id, world_id, owner_id, pinned_manually)` — calque chapter_participants, RLS owner-scoped
+- `events.description_html` → ADD (Tiptap mini)
+- `chat_threads.parent_kind` CHECK étendu pour autoriser `'event'`
+
+### Livré
+
+- **Data layer** : nouvelles queries `chapterEvents.ts` (link/unlink/reorder narrative_rank + byChapter/byEvent/byWorld) et `eventParticipants.ts` (link/unlink). `useCreateEntityVersion` accepte `sourceEventId`. `useEvents`/`useEvent` exposent `description_html`. `useCreateChapter` accepte un argument `firstEvent` qui insère event + `chapter_events` dans la même transaction d'app.
+- **Helpers** : `chronoDerive.ts` (`buildChapterChronoMap`, `buildEventChaptersMap`) — chrono dérivé, base de toute résolution. `versioning.ts` refactor : `buildRankPickerItems(chapters, events, chapterChrono?)` skip chapters sans chrono dérivé ; `rankAfterChapter` → `rankAfterEvent`. `pcc.ts` prend désormais `chapterChrono` map au lieu de `chapter.chronological_rank`. `timelineItems.ts` simplifié à `sortEventsByChrono` + `rankForMoveUp/Down(string[])`.
+- **Routes** : nouvelle `/worlds/$worldId/events/$eventId` → `EventScreen`. Route `/timeline` conservée.
+- **`EventScreen`** : layout 3-col (LinkedEntities + DetectedEntities | description Tiptap mini autosave | ChatPanel `parentKind='event'`). Header avec back-to-timeline, badge OFF-SCREEN conditionnel, position chrono `#k of N`, delete. Section "Told in chapters" = chips cliquables vers chaque chapter retelling.
+- **`TimelineScreen` refonte** : list events-only triés chrono, ↑▼ reorder de `chronological_rank`, chaque row montre les chips chapters qui le retellent ; badge `OFF-SCREEN` si aucun ; create/edit/delete inline préservés ; click event → EventScreen. Plus d'insertion de chapters comme rows.
+- **`ChapterScreen`** : `chronological_rank` retiré partout (résolution entity cards / PCC passe par `buildChapterChronoMap` puis fallback `CURRENT_RANK_SENTINEL`). Header : badges `NO EVENTS LINKED` (orange) et `Prose changed` (sky) ; bouton renommé `Propose canon` ; layout 3-col inchangé (LinkedEntities + DetectedEntities + nouveau **`EventsCoveredPanel`** en tête de l'aside gauche).
+- **`EventsCoveredPanel`** : list linked events triés `narrative_rank`, ↑▼ reorder, ✕ unlink (l'event survit), `+ Link` (select des events non liés du world) et `+ New` (input title qui crée + link en une frappe). Warning rouge si 0 events.
+- **`ProposeUpdatesModal` → funnel "Propose canon from chapter"** : LLM via nouveau helper `src/lib/llm/proposeCanon.ts` (zod schema `{events:[{title,description,entityDiffs[]}]}`, mock + openai providers). Modal affiche les events proposés, chacun avec checkbox par diff + justification quotes ; Accept = transaction app séquentielle (insert event → chapter_events → event_participants → entity_versions avec `source_event_id` + `rankAfterEvent`). Mute `chapters.last_analyzed_at` au run pour clear le badge "Prose changed".
+- **Forced ≥1 event sur création de chapter** : 2 entry points couverts. (1) `BookDetailScreen` → form 2-inputs (chapter title optional + first event title required) + helper text. (2) `PromoteToChapterModal` → input "First event title" required, pré-rempli depuis le titre de la note.
+- **`PromoteToEntityVersionModal`** + bouton "Promote → version" sur NoteScreen : **supprimés**. **`NewVersionModal`** + bouton "+ New version…" sur EntityDetailScreen : **supprimés**. Remplacés par un hint "Updates flow through events" — pour modifier l'état d'une entity il faut maintenant passer par un event.
+- **`ReaderChapterScreen`** : popup entity utilise `CURRENT_RANK_SENTINEL` (chapter n'a plus de chrono propre). Per la macro-décision "current state suffit pour v1".
+- **`ChatPanel` & `runs`** : `ThreadParentKind` étendu à `'event'`. `runs.parentKind` étendu à `'event'`.
+
+### Validation
+
+- typecheck ✓ · lint ✓ (1 warning pré-existant, react-refresh sur `router.tsx`) · 96 Vitest (13 nouveaux : 7 chronoDerive + révisions versioning/timelineItems/pcc) · 4 Playwright e2e ✓ · build prod ✓
+- Smoke Chrome live OpenAI sur Smoke Test World :
+  - Timeline events-first, badges OFF-SCREEN visibles sur events legacy. ✓
+  - Création chapter via Books — form forcé à first event, redirect vers ChapterScreen avec EVENTS COVERED (1) et le nouvel event apparaît dans la timeline avec son chip "📖 Le sermon des cendres". ✓
+  - "Propose canon" sur Confrontation à la forteresse → 2 events proposés ("Sorn brise le bras d'Iria" + "Edran reste impassible") avec diffs Iria.bio et Edran Voss.bio + justifications citant la prose. Accept all → events créés et liés, badge `NO EVENTS LINKED` disparaît, panel passe à EVENTS COVERED (2). ✓
+  - Run loggué (`propose_updates · 3199ms`) en Monitoring. ✓
+  - EventScreen sur l'event #3 : header back/chrono pos/delete, "Told in chapters: 📖 Le sermon des cendres", description editor + ChatPanel. ✓
+  - Iria EntityDetailScreen : rail timeline montre les 2 nouveaux anchors `after 📅 Sorn brise le bras d'Iria · 1 update` et `after 📅 Edran reste impassible · 1 update`, snapshot current = nouvelle bio + alive=true ; le bouton "+ New version" est remplacé par "Updates flow through events". ✓
+
+### Décisions tranchées (cf. § d du brainstorm)
+
+- **Pas de dnd-kit** pour le narrative_rank reorder — simples boutons ↑▼ comme partout ailleurs (cohérent + simplest path).
+- **Pas de "Propose updates from this event" direct** sur EventScreen pour cette slice : le funnel "Propose canon from chapter" couvre déjà la boucle. À ajouter en (d.x) si besoin.
+- **Pas de Re-analysis "Run again"** dans le funnel — ré-ouvrir le modal et re-cliquer Run analysis suffit, le LLM reçoit la liste "Already in canon" pour éviter les doublons.
+- **Pas d'auto-création d'entities** dans le funnel : LLM contraint aux entityIds des linked entities. Création via "+ Entity" reste manuelle. Élargissable en (d.x).
+- **Chapter chrono dérivé = MIN linked-event chrono** (pas average / median). Cohérent avec l'idée "earliest event = where the chapter starts".
+- **Card resolution rank dans ChapterScreen** : `chapterChrono.get(chapterId) ?? CURRENT_RANK_SENTINEL` — si chapter sans events liés, on tombe sur l'état courant (rare, transient, OK).
+- **Reader popup state** : `CURRENT_RANK_SENTINEL` (per macro-décision "current state suffit pour v1, raffinement chrono fine = backlog").
+- **`PromoteToEntityVersionModal` / `NewVersionModal`** : supprimés. Pas de chemin direct pour créer une entity_version sans event source. Question "edit in-place de v0" laissée en backlog (cf. § "À revisiter plus tard").
+
+### À reprendre dans une prochaine session — point d'entrée
+
+V1 + chunks (a)/(b)/(c)/(d) tous livrés. Pour le suivant : utiliser l'app sur un projet d'écriture réel quelques jours puis prioriser ce qui frotte le plus.
+
+Candidats post-(d) sourcés du brainstorm :
+- **(d.x) Propose updates direct depuis EventScreen** (pas via le funnel chapter) — pour le canon side-of-the-house pur.
+- **(d.x) Re-analysis intelligente** : envoyer en contexte au LLM les events déjà liés + leurs diffs déjà appliqués, pour qu'il propose UNIQUEMENT du nouveau (à la place du current "skip events already in canon" qui est plus grossier).
+- **(d.x) Auto-create entities** : autoriser le LLM à proposer des nouvelles entities dans le funnel (insert entities → events → versions séquentiel).
+- **(d.x) dnd-kit reorder** sur EventsCoveredPanel et TimelineScreen — quand on dépassera 10+ items, les boutons ↑▼ deviendront pénibles.
+- **(d.x) Versioning de chapter au publish** — déjà candidat avant (d).
+- **(d.x) Stemming FR/EN dans search** — déjà candidat avant (d).
+
+---
+
 ## Status (2026-05-02 PM, chunks (a)/(b)/(c) + type tabs livrés)
 
 Chunks (a), (b), (c) du plan post-v1 livrés en une session, plus un ajout user-driven : tabs de filtre par type sur `/entities`. **Aucune migration appliquée** — toutes les features sont DB-compatible avec V010.
 
 ### Doc de chantier en cours
 
-**[docs/post-v1-nav-canon.md](./post-v1-nav-canon.md)** ⭐ — chunks (a) appbar ✅ / (b) entity types relégués ✅ / (c) page entities enrichie ✅ / (d) event upgrade (à venir, prochaine session). Décisions tranchées + tasks détaillées + critères de validation.
+**[docs/post-v1-nav-canon.md](./post-v1-nav-canon.md)** — chunks (a) appbar ✅ / (b) entity types relégués ✅ / (c) page entities enrichie ✅ / (d) event upgrade ✅. Décisions tranchées + tasks détaillées + critères de validation.
 
 ### Livré cette session (PM)
 

@@ -30,7 +30,7 @@ export interface EntityVersion {
   valid_from_rank: string;
   snapshot: Snapshot;
   source_note_id: string | null;
-  source_chapter_id: string | null;
+  source_event_id: string | null;
   note_excerpt: string | null;
   created_at: string;
 }

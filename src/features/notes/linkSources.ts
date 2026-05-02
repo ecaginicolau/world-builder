@@ -10,6 +10,11 @@ import {
   useLinkChapterEntity,
   useUnlinkChapterEntity,
 } from '@/lib/queries/chapterParticipants';
+import {
+  useEventParticipants,
+  useLinkEventEntity,
+  useUnlinkEventEntity,
+} from '@/lib/queries/eventParticipants';
 
 /**
  * Generic shape of a "linked entity" link, used by LinkedEntitiesPanel and
@@ -62,6 +67,56 @@ export function useNoteLinkSource(noteId: string): LinkSource {
   const untag = useCallback(
     (entityId: string) => untagM.mutate({ noteId, entityId }),
     [noteId, untagM],
+  );
+
+  return useMemo<LinkSource>(
+    () => ({
+      links,
+      isLoading: linksQ.isLoading,
+      error: linksQ.error ?? null,
+      tag,
+      untag,
+      trackAutoBadge: true,
+    }),
+    [links, linksQ.isLoading, linksQ.error, tag, untag],
+  );
+}
+
+export function useEventLinkSource(args: {
+  eventId: string;
+  worldId: string;
+}): LinkSource {
+  const { eventId, worldId } = args;
+  const session = useSession();
+  const linksQ = useEventParticipants(eventId);
+  const linkM = useLinkEventEntity();
+  const unlinkM = useUnlinkEventEntity();
+
+  const ownerId = session.status === 'authed' ? session.session.user.id : null;
+  const links = useMemo(
+    () =>
+      (linksQ.data ?? []).map((l) => ({
+        entityId: l.entity_id,
+        pinnedManually: l.pinned_manually,
+      })),
+    [linksQ.data],
+  );
+  const tag = useCallback(
+    (entityId: string, opts?: { pinnedManually?: boolean }) => {
+      if (!ownerId) return;
+      linkM.mutate({
+        eventId,
+        entityId,
+        worldId,
+        ownerId,
+        pinnedManually: opts?.pinnedManually ?? true,
+      });
+    },
+    [eventId, worldId, ownerId, linkM],
+  );
+  const untag = useCallback(
+    (entityId: string) => unlinkM.mutate({ eventId, entityId }),
+    [eventId, unlinkM],
   );
 
   return useMemo<LinkSource>(

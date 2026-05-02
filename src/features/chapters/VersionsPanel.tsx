@@ -14,6 +14,10 @@ interface Props {
   dirty: boolean;
   onSaveManualEdit: () => Promise<void>;
   saveManualPending: boolean;
+  /** Show the "📌 Snapshot this version" affordance (selected = manual_edit, autosave on). */
+  showSnapshotButton?: boolean;
+  onSnapshot?: () => void;
+  snapshotPending?: boolean;
   /** Number of slots in world.previous_chapter_context (0 = feature disabled). */
   pccSlotCount: number;
   /** Disable everything write-side (used when chapter is published). */
@@ -32,6 +36,9 @@ export function VersionsPanel({
   dirty,
   onSaveManualEdit,
   saveManualPending,
+  showSnapshotButton = false,
+  onSnapshot,
+  snapshotPending = false,
   pccSlotCount,
   readOnly = false,
 }: Props) {
@@ -62,6 +69,22 @@ export function VersionsPanel({
             data-testid="save-manual-edit"
           >
             {saveManualPending ? 'Saving…' : 'Save as new version'}
+          </button>
+        </div>
+      ) : null}
+
+      {showSnapshotButton && !readOnly && !dirty ? (
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-bg-subtle/40 px-3 py-1.5 text-xs">
+          <span className="text-fg-muted">Editing in place · autosave on</span>
+          <button
+            type="button"
+            onClick={onSnapshot}
+            disabled={snapshotPending}
+            className="bg-bg-subtle px-2 py-0.5 text-xs hover:bg-bg disabled:opacity-50"
+            data-testid="snapshot-version"
+            title="Fork this version into a new manual_edit row you can roll back to"
+          >
+            {snapshotPending ? 'Snapshotting…' : '📌 Snapshot'}
           </button>
         </div>
       ) : null}

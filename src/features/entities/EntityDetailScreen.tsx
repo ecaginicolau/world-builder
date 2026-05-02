@@ -2,76 +2,72 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useEntity, useUpdateEntity, useDeleteEntity } from '@/lib/queries/entities';
 import { useEntityType, useEntityTypes } from '@/lib/queries/entityTypes';
-import { useChaptersByWorld } from '@/lib/queries/chapters';
 import { useEvents } from '@/lib/queries/events';
-import { useEntityVersions } from '@/lib/queries/entityVersions';
+import {
+  useEntityVersions,
+  useUpsertEntityField,
+  useResetEntityField,
+} from '@/lib/queries/entityVersions';
+import { useSession } from '@/features/auth/session';
 import { useNavigate } from '@tanstack/react-router';
 import { useConfirm } from '@/lib/useConfirm';
 import { chipBgFromHex, chipBorderFromHex, resolveColor } from '@/lib/entityColors';
 import {
-  CURRENT_RANK_SENTINEL,
   anchorId,
   anchorLabel,
   buildAnchors,
-  buildRankPickerItems,
-  diffSnapshots,
+  buildEventRailItems,
+  coerceFieldValue,
   formatFieldValue,
-  resolveStateAtAnchor,
-  versionLabelForRank,
-  versionsByAnchor,
+  resolveSnapshotAtAnchor,
+  type FieldResolution,
   type TimelineAnchor,
 } from './versioning';
-import { NewVersionModal } from './NewVersionModal';
 import { INIT_RANK } from '@/lib/ranks';
-import type { EntityVersion, FieldDef, Snapshot } from './types';
+import type { EntityVersion, FieldDef, FieldValue } from './types';
 
 export function EntityDetailScreen() {
   const { worldId, entityId } = useParams({ from: '/worlds/$worldId/entities/$entityId' });
   const navigate = useNavigate();
+  const session = useSession();
   const entityQ = useEntity(entityId);
   const typesQ = useEntityTypes(worldId);
   const typeQ = useEntityType(entityQ.data?.entity_type_id ?? '');
-  const chaptersQ = useChaptersByWorld(worldId);
   const eventsQ = useEvents(worldId);
   const versionsQ = useEntityVersions(entityId);
   const updateEntity = useUpdateEntity();
   const deleteEntity = useDeleteEntity();
+  const upsertField = useUpsertEntityField();
+  const resetField = useResetEntityField();
   const confirm = useConfirm();
 
   const [name, setName] = useState<string>('');
   const [aliasInput, setAliasInput] = useState('');
-  const [cursorId, setCursorId] = useState<string>(CURRENT_RANK_SENTINEL);
-  const [newVersionOpen, setNewVersionOpen] = useState(false);
+  // Cursor = null → fall back to "the latest available anchor" (current state).
+  // User clicks an anchor → cursor pinned. Re-mounting on a different entity
+  // resets to null so the default kicks in again.
+  const [cursorId, setCursorId] = useState<string | null>(null);
 
   useEffect(() => {
     if (entityQ.data) setName(entityQ.data.name);
   }, [entityQ.data]);
 
-  const rankItems = useMemo(
-    () => buildRankPickerItems(chaptersQ.data ?? [], eventsQ.data ?? []),
-    [chaptersQ.data, eventsQ.data],
-  );
+  // Entity rail = events only. Chapter anchors aren't editable surfaces post-(d).
+  const railItems = useMemo(() => buildEventRailItems(eventsQ.data ?? []), [eventsQ.data]);
 
   const sortedVersions = useMemo<EntityVersion[]>(
     () => (versionsQ.data ?? []).slice().sort((a, b) => (a.valid_from_rank < b.valid_from_rank ? -1 : 1)),
     [versionsQ.data],
   );
 
-  const anchors = useMemo(() => buildAnchors(rankItems), [rankItems]);
+  const anchors = useMemo(() => buildAnchors(railItems), [railItems]);
 
-  const versionsAt = useMemo(
-    () => versionsByAnchor(rankItems, sortedVersions),
-    [rankItems, sortedVersions],
-  );
+  const effectiveCursorId =
+    cursorId ?? (anchors.length > 0 ? anchorId(anchors[anchors.length - 1]) : '@init');
 
   const currentAnchor = useMemo<TimelineAnchor>(
-    () => anchors.find((a) => anchorId(a) === cursorId) ?? { kind: 'current' },
-    [anchors, cursorId],
-  );
-
-  const stateAtCursor = useMemo(
-    () => resolveStateAtAnchor(currentAnchor, rankItems, sortedVersions),
-    [currentAnchor, rankItems, sortedVersions],
+    () => anchors.find((a) => anchorId(a) === effectiveCursorId) ?? { kind: 'init' as const },
+    [anchors, effectiveCursorId],
   );
 
   if (entityQ.isLoading || !entityQ.data) {
@@ -85,6 +81,8 @@ export function EntityDetailScreen() {
   const type = typeQ.data;
   const color = type ? resolveColor(type.color, type.name) : '#a1a1aa';
   const fields: FieldDef[] = type?.fields ?? [];
+
+  const resolved = resolveSnapshotAtAnchor(currentAnchor, railItems, sortedVersions, fields);
 
   function commitName() {
     const trimmed = name.trim();
@@ -116,6 +114,29 @@ export function EntityDetailScreen() {
       worldId,
       aliases: (entity.aliases ?? []).filter((x) => x !== a),
     });
+  }
+
+  function onSetField(fieldName: string, value: FieldValue) {
+    if (session.status !== 'authed') return;
+    const eventId =
+      currentAnchor.kind === 'init' ? null : currentAnchor.item.id;
+    const validFromRank =
+      currentAnchor.kind === 'init' ? INIT_RANK : currentAnchor.item.rank;
+    upsertField.mutate({
+      entityId,
+      worldId,
+      ownerId: session.session.user.id,
+      eventId,
+      fieldName,
+      value,
+      validFromRank,
+    });
+  }
+
+  function onResetField(fieldName: string) {
+    const eventId =
+      currentAnchor.kind === 'init' ? null : currentAnchor.item.id;
+    resetField.mutate({ entityId, worldId, eventId, fieldName });
   }
 
   async function onDelete() {
@@ -242,98 +263,63 @@ export function EntityDetailScreen() {
       >
         <TimelineRail
           anchors={anchors}
-          cursorId={cursorId}
+          cursorId={effectiveCursorId}
           onSelect={setCursorId}
-          versionsAt={versionsAt}
-          totalVersions={sortedVersions.length}
+          versions={sortedVersions}
         />
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold" data-testid="state-anchor-label">
               {anchorLabel(currentAnchor)}
             </h2>
-            <button
-              type="button"
-              onClick={() => setNewVersionOpen(true)}
-              className="bg-accent px-3 py-1 text-sm font-medium text-accent-fg"
-              data-testid="new-version"
-            >
-              + New version…
-            </button>
+            <span className="text-xs italic text-fg-muted" title="Edits to fields auto-save into the version anchored at this point.">
+              Edits autosave at this anchor
+            </span>
           </div>
-          <FieldsCard fields={fields} snapshot={stateAtCursor?.snapshot ?? {}} />
-          {stateAtCursor ? (
-            <p className="text-xs text-fg-muted" data-testid="state-source">
-              From version {versionLabelForRank(stateAtCursor.valid_from_rank, rankItems)}
-              {' · '}
-              {new Date(stateAtCursor.created_at).toLocaleDateString()}
-            </p>
-          ) : (
-            <p className="text-xs text-fg-muted" data-testid="state-empty">
-              No version applies at this point. Create one to start tracking state.
-            </p>
-          )}
-          {currentAnchor.kind === 'after' || currentAnchor.kind === 'init' ? (
-            <AnchorVersionList
-              versions={versionsAt.get(anchorId(currentAnchor)) ?? []}
-              allVersions={sortedVersions}
-              rankItems={rankItems}
-            />
-          ) : null}
+          <FieldsEditor
+            fields={fields}
+            resolved={resolved}
+            currentAnchor={currentAnchor}
+            onSet={onSetField}
+            onReset={onResetField}
+          />
         </div>
       </section>
-
-      <NewVersionModal
-        open={newVersionOpen}
-        onClose={() => setNewVersionOpen(false)}
-        entityId={entityId}
-        worldId={worldId}
-        fields={fields}
-        currentSnapshot={stateAtCursor?.snapshot ?? {}}
-        rankItems={rankItems}
-        existingVersions={sortedVersions}
-        defaultRank={defaultRankFromAnchor(currentAnchor)}
-      />
     </main>
   );
-}
-
-function defaultRankFromAnchor(a: TimelineAnchor): string | null {
-  if (a.kind === 'init') return INIT_RANK;
-  if (a.kind === 'after') return a.item.rank;
-  return null;
 }
 
 interface TimelineRailProps {
   anchors: TimelineAnchor[];
   cursorId: string;
   onSelect: (id: string) => void;
-  versionsAt: Map<string, EntityVersion[]>;
-  totalVersions: number;
+  versions: EntityVersion[];
 }
 
-function TimelineRail({
-  anchors,
-  cursorId,
-  onSelect,
-  versionsAt,
-  totalVersions,
-}: TimelineRailProps) {
+function TimelineRail({ anchors, cursorId, onSelect, versions }: TimelineRailProps) {
+  // Map anchor id → has a version anchored here.
+  const anchorHasVersion = new Map<string, boolean>();
+  for (const a of anchors) {
+    if (a.kind === 'init') {
+      anchorHasVersion.set('@init', versions.some((v) => v.source_event_id === null));
+    } else {
+      anchorHasVersion.set(a.item.rank, versions.some((v) => v.source_event_id === a.item.id));
+    }
+  }
+
   return (
     <aside
       className="lg:sticky lg:top-6 lg:self-start"
       data-testid="timeline-rail"
     >
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-muted">
-        Timeline ({totalVersions} version{totalVersions === 1 ? '' : 's'})
+        Timeline ({versions.length} version{versions.length === 1 ? '' : 's'})
       </h2>
       <ol className="relative space-y-0.5 border-l border-border pl-3">
         {anchors.map((a) => {
           const id = anchorId(a);
           const isActive = id === cursorId;
-          const versions = versionsAt.get(id) ?? [];
-          const hasVersion = versions.length > 0;
-          const isCurrent = a.kind === 'current';
+          const hasVersion = anchorHasVersion.get(id) ?? false;
           return (
             <li key={id} className="relative">
               <span
@@ -358,12 +344,7 @@ function TimelineRail({
                 data-anchor-id={id}
                 data-active={isActive ? 'true' : 'false'}
               >
-                <span className={isCurrent ? 'italic' : ''}>{anchorLabel(a)}</span>
-                {hasVersion ? (
-                  <span className="ml-1 text-[10px] text-fg-muted">
-                    · {versions.length} update{versions.length === 1 ? '' : 's'}
-                  </span>
-                ) : null}
+                {anchorLabel(a)}
               </button>
             </li>
           );
@@ -373,68 +354,15 @@ function TimelineRail({
   );
 }
 
-function AnchorVersionList({
-  versions,
-  allVersions,
-  rankItems,
-}: {
-  versions: EntityVersion[];
-  allVersions: EntityVersion[];
-  rankItems: ReturnType<typeof buildRankPickerItems>;
-}) {
-  if (versions.length === 0) {
-    return (
-      <p className="text-xs text-fg-muted" data-testid="anchor-no-updates">
-        No updates anchored here yet.
-      </p>
-    );
-  }
-  const indexInAll = (v: EntityVersion) =>
-    allVersions.findIndex((x) => x.id === v.id);
-  return (
-    <ul className="space-y-1" data-testid="anchor-versions">
-      {versions.map((v) => {
-        const idx = indexInAll(v);
-        const prev = idx > 0 ? (allVersions[idx - 1].snapshot as Snapshot) : ({} as Snapshot);
-        const changed = diffSnapshots(prev, v.snapshot as Snapshot);
-        return (
-          <li
-            key={v.id}
-            className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel px-3 py-2 text-sm"
-            data-testid="version-row"
-          >
-            <div className="flex justify-between">
-              <span>{versionLabelForRank(v.valid_from_rank, rankItems)}</span>
-              <span className="text-xs text-fg-muted">
-                {new Date(v.created_at).toLocaleDateString()}
-              </span>
-            </div>
-            {changed.length > 0 ? (
-              <div className="flex flex-wrap gap-1 text-xs text-fg-muted">
-                {changed.map((k) => (
-                  <span
-                    key={k}
-                    className="rounded-md bg-bg-subtle px-1.5 py-0.5"
-                    data-testid="version-diff-chip"
-                  >
-                    {k}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            {v.note_excerpt ? (
-              <p className="mt-0.5 line-clamp-2 text-xs italic text-fg-muted">
-                {v.note_excerpt}
-              </p>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
-  );
+interface FieldsEditorProps {
+  fields: FieldDef[];
+  resolved: Map<string, FieldResolution>;
+  currentAnchor: TimelineAnchor;
+  onSet: (fieldName: string, value: FieldValue) => void;
+  onReset: (fieldName: string) => void;
 }
 
-function FieldsCard({ fields, snapshot }: { fields: FieldDef[]; snapshot: Snapshot }) {
+function FieldsEditor({ fields, resolved, currentAnchor, onSet, onReset }: FieldsEditorProps) {
   if (fields.length === 0) {
     return (
       <p className="rounded-md border border-border bg-bg-panel px-3 py-2 text-sm text-fg-muted">
@@ -443,20 +371,155 @@ function FieldsCard({ fields, snapshot }: { fields: FieldDef[]; snapshot: Snapsh
       </p>
     );
   }
+  // Same-anchor source means the field is set explicitly here (vs inherited).
+  const isExplicitHere = (r: FieldResolution): boolean => {
+    if (!r.source) return false;
+    if (currentAnchor.kind === 'init') return r.source.source_event_id === null;
+    return r.source.source_event_id === currentAnchor.item.id;
+  };
   return (
-    <dl className="grid gap-2 rounded-md border border-border bg-bg-panel px-3 py-2 text-sm sm:grid-cols-[140px_1fr]">
+    <div className="space-y-2 rounded-md border border-border bg-bg-panel px-3 py-3">
       {fields.map((f) => {
-        const raw = snapshot[f.name];
-        const display = formatFieldValue(raw ?? null);
+        const r = resolved.get(f.name) ?? { value: null, source: null };
         return (
-          <div key={f.name} className="contents" data-testid="field-display">
-            <dt className="text-xs text-fg-muted">{f.name}</dt>
-            <dd className={display ? '' : 'text-fg-muted italic'}>
-              {display || '(no value)'}
-            </dd>
-          </div>
+          <FieldRow
+            key={f.name}
+            field={f}
+            resolution={r}
+            inheritedFrom={isExplicitHere(r) ? null : describeSource(r.source)}
+            onSet={(value) => onSet(f.name, value)}
+            onReset={isExplicitHere(r) ? () => onReset(f.name) : undefined}
+          />
         );
       })}
-    </dl>
+    </div>
+  );
+}
+
+function describeSource(source: EntityVersion | null): string {
+  if (!source) return 'never set';
+  if (source.source_event_id === null) return 'inherited from initial';
+  return 'inherited from earlier event';
+}
+
+interface FieldRowProps {
+  field: FieldDef;
+  resolution: FieldResolution;
+  /** Null when explicitly set at the current anchor; non-null otherwise. */
+  inheritedFrom: string | null;
+  onSet: (value: FieldValue) => void;
+  onReset?: () => void;
+}
+
+function FieldRow({ field, resolution, inheritedFrom, onSet, onReset }: FieldRowProps) {
+  const inherited = inheritedFrom !== null;
+  const stored = formatFieldValue(resolution.value);
+  const [draft, setDraft] = useState<string>(stored);
+
+  // Re-sync local input when the underlying resolved value changes (anchor
+  // switch, autosave landed, etc.) — but skip when the user is mid-edit and
+  // the values match.
+  useEffect(() => {
+    setDraft(stored);
+  }, [stored]);
+
+  function commit() {
+    if (draft === stored) return;
+    onSet(coerceFieldValue(field.kind, draft));
+  }
+
+  function commitBool(checked: boolean) {
+    onSet(checked);
+  }
+
+  const labelStyle = inherited ? 'text-fg-muted italic' : '';
+  const fieldHint = inherited ? (
+    <span className="text-[10px] italic text-fg-muted" title={inheritedFrom ?? ''}>
+      ({inheritedFrom})
+    </span>
+  ) : null;
+  const resetButton = onReset ? (
+    <button
+      type="button"
+      onClick={onReset}
+      className="text-[10px] text-fg-muted hover:text-fg"
+      title="Reset this field at this anchor → fall back to inheritance"
+      data-testid="field-reset"
+    >
+      ↺
+    </button>
+  ) : null;
+
+  if (field.kind === 'bool') {
+    const checked = resolution.value === true;
+    return (
+      <label
+        className="flex items-center gap-2 text-sm"
+        data-testid="field-row"
+        data-field-name={field.name}
+        data-explicit={inherited ? 'false' : 'true'}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => commitBool(e.target.checked)}
+          className={inherited ? 'opacity-60' : ''}
+          data-testid="field-input"
+        />
+        <span className={labelStyle}>{field.name}</span>
+        {fieldHint}
+        {resetButton}
+      </label>
+    );
+  }
+
+  if (field.kind === 'text') {
+    return (
+      <label
+        className="block space-y-1"
+        data-testid="field-row"
+        data-field-name={field.name}
+        data-explicit={inherited ? 'false' : 'true'}
+      >
+        <span className={`flex items-center gap-2 text-xs ${labelStyle}`}>
+          {field.name}
+          {field.required ? <span className="text-red-400">*</span> : null}
+          {fieldHint}
+          {resetButton}
+        </span>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          rows={3}
+          className={`w-full px-2 py-1 text-sm ${inherited ? 'opacity-70' : ''}`}
+          data-testid="field-input"
+        />
+      </label>
+    );
+  }
+
+  return (
+    <label
+      className="block space-y-1"
+      data-testid="field-row"
+      data-field-name={field.name}
+      data-explicit={inherited ? 'false' : 'true'}
+    >
+      <span className={`flex items-center gap-2 text-xs ${labelStyle}`}>
+        {field.name}
+        {field.required ? <span className="text-red-400">*</span> : null}
+        {fieldHint}
+        {resetButton}
+      </span>
+      <input
+        type={field.kind === 'int' ? 'number' : 'text'}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        className={`w-full px-2 py-1 text-sm ${inherited ? 'opacity-70' : ''}`}
+        data-testid="field-input"
+      />
+    </label>
   );
 }

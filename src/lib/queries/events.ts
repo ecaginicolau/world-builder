@@ -23,12 +23,29 @@ export function useEvents(worldId: string) {
   });
 }
 
+export function useEvent(eventId: string) {
+  return useQuery<TimelineEvent, Error>({
+    queryKey: eventsKeys.detail(eventId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', eventId)
+        .single();
+      if (error) throw error;
+      return data as TimelineEvent;
+    },
+    enabled: !!eventId,
+  });
+}
+
 interface CreateEventInput {
   worldId: string;
   ownerId: string;
   title: string;
   chronologicalRank: string;
   description?: string | null;
+  descriptionHtml?: string | null;
   tags?: string[];
   sourceNoteId?: string | null;
 }
@@ -42,6 +59,7 @@ export function useCreateEvent() {
       title,
       chronologicalRank,
       description,
+      descriptionHtml,
       tags,
       sourceNoteId,
     }) => {
@@ -53,6 +71,7 @@ export function useCreateEvent() {
           title: title.trim(),
           chronological_rank: chronologicalRank,
           description: description ?? null,
+          description_html: descriptionHtml ?? null,
           tags: tags ?? [],
           source_note_id: sourceNoteId ?? null,
         })
@@ -71,6 +90,7 @@ interface UpdateEventInput {
   id: string;
   title?: string;
   description?: string | null;
+  descriptionHtml?: string | null;
   tags?: string[];
   chronologicalRank?: string;
 }
@@ -78,10 +98,11 @@ interface UpdateEventInput {
 export function useUpdateEvent() {
   const qc = useQueryClient();
   return useMutation<TimelineEvent, Error, UpdateEventInput>({
-    mutationFn: async ({ id, title, description, tags, chronologicalRank }) => {
+    mutationFn: async ({ id, title, description, descriptionHtml, tags, chronologicalRank }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title.trim();
       if (description !== undefined) patch.description = description;
+      if (descriptionHtml !== undefined) patch.description_html = descriptionHtml;
       if (tags !== undefined) patch.tags = tags;
       if (chronologicalRank !== undefined) patch.chronological_rank = chronologicalRank;
       const { data, error } = await supabase

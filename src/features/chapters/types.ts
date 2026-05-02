@@ -27,7 +27,6 @@ export interface Chapter {
   world_id: string;
   owner_id: string;
   reading_rank: string;
-  chronological_rank: string;
   title: string | null;
   final_version_id: string | null;
   summary_s: string | null;
@@ -35,6 +34,7 @@ export interface Chapter {
   summary_l: string | null;
   status: 'draft' | 'published';
   published_at: string | null;
+  last_analyzed_at: string | null;
   source_note_id: string | null;
   created_at: string;
   updated_at: string;

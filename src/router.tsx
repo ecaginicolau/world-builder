@@ -17,6 +17,7 @@ import { BooksScreen } from './features/chapters/BooksScreen';
 import { BookDetailScreen } from './features/chapters/BookDetailScreen';
 import { ChapterScreen } from './features/chapters/ChapterScreen';
 import { TimelineScreen } from './features/timeline/TimelineScreen';
+import { EventScreen } from './features/events/EventScreen';
 import { SettingsScreen } from './features/settings/SettingsScreen';
 import { ReaderScreen } from './features/reader/ReaderScreen';
 import { ReaderChapterScreen } from './features/reader/ReaderChapterScreen';
@@ -141,6 +142,13 @@ const timelineRoute = createRoute({
   component: TimelineScreen,
 });
 
+const eventRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/events/$eventId',
+  beforeLoad: requireAuth,
+  component: EventScreen,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/worlds/$worldId/settings',
@@ -182,6 +190,7 @@ const routeTree = rootRoute.addChildren([
   bookDetailRoute,
   chapterRoute,
   timelineRoute,
+  eventRoute,
   settingsRoute,
   readerRoute,
   readerChapterRoute,
