@@ -1,16 +1,24 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useWorld } from '@/lib/queries/worlds';
 import { useSession } from '@/features/auth/session';
-import { useAlert, useConfirm } from '@/lib/useConfirm';
-import {
-  useCreateEntityType,
-  useDeleteEntityType,
-  useEntityTypes,
-} from '@/lib/queries/entityTypes';
+import { useEntityTypes } from '@/lib/queries/entityTypes';
 import { chipBgFromHex, chipBorderFromHex, resolveColor } from '@/lib/entityColors';
 import { useCreateEntity, useEntities } from '@/lib/queries/entities';
-import type { Entity, EntityType } from './types';
+import { useEntityVersionsByWorld } from '@/lib/queries/entityVersions';
+import { useChaptersByWorld } from '@/lib/queries/chapters';
+import { useEvents } from '@/lib/queries/events';
+import {
+  CURRENT_RANK_SENTINEL,
+  buildRankPickerItems,
+  formatFieldValue,
+  rankPickerLabel,
+  resolveStateAtRank,
+} from './versioning';
+import type { Entity, EntityType, EntityVersion, FieldDef, Snapshot } from './types';
+import { EntityTypesEditorModal } from './EntityTypesEditorModal';
+
+type SortKey = 'name' | 'updated' | 'appearance';
 
 export function EntitiesScreen() {
   const { worldId } = useParams({ from: '/worlds/$worldId/entities' });
@@ -18,26 +26,27 @@ export function EntitiesScreen() {
   const worldQ = useWorld(worldId);
   const typesQ = useEntityTypes(worldId);
   const entitiesQ = useEntities(worldId);
-  const createType = useCreateEntityType();
-  const deleteType = useDeleteEntityType();
+  const versionsQ = useEntityVersionsByWorld(worldId);
+  const chaptersQ = useChaptersByWorld(worldId);
+  const eventsQ = useEvents(worldId);
   const createEntity = useCreateEntity();
-  const confirm = useConfirm();
-  const alert = useAlert();
 
-  const [newTypeName, setNewTypeName] = useState('');
   const [newEntityName, setNewEntityName] = useState('');
   const [newEntityTypeId, setNewEntityTypeId] = useState<string>('');
+  const [typesModalOpen, setTypesModalOpen] = useState(false);
 
-  async function onAddType(e: FormEvent) {
-    e.preventDefault();
-    if (!newTypeName.trim() || session.status !== 'authed') return;
-    await createType.mutateAsync({
-      worldId,
-      ownerId: session.session.user.id,
-      name: newTypeName.trim(),
-    });
-    setNewTypeName('');
-  }
+  const [searchRaw, setSearchRaw] = useState('');
+  const [search, setSearch] = useState('');
+  const [rankCursor, setRankCursor] = useState<string>(CURRENT_RANK_SENTINEL);
+  const [hideDead, setHideDead] = useState(false);
+  const [sort, setSort] = useState<SortKey>('name');
+  const [typeTab, setTypeTab] = useState<string>('all');
+
+  // Debounce search 150ms.
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(searchRaw), 150);
+    return () => clearTimeout(id);
+  }, [searchRaw]);
 
   async function onAddEntity(e: FormEvent) {
     e.preventDefault();
@@ -51,117 +60,138 @@ export function EntitiesScreen() {
     setNewEntityName('');
   }
 
-  async function onDeleteType(t: EntityType) {
-    const used = entitiesQ.data?.some((e) => e.entity_type_id === t.id);
-    if (used) {
-      await alert({
-        title: `Can't delete type "${t.name}"`,
-        message: 'Entities of this type still exist. Delete them first.',
-      });
-      return;
-    }
-    const ok = await confirm({ title: `Delete type "${t.name}"?`, danger: true });
-    if (!ok) return;
-    deleteType.mutate({ id: t.id, worldId });
-  }
+  const typesById = useMemo(
+    () => new Map((typesQ.data ?? []).map((t) => [t.id, t])),
+    [typesQ.data],
+  );
 
-  const typesById = new Map((typesQ.data ?? []).map((t) => [t.id, t]));
-  const entitiesByType = new Map<string, Entity[]>();
-  for (const e of entitiesQ.data ?? []) {
-    const list = entitiesByType.get(e.entity_type_id) ?? [];
-    list.push(e);
-    entitiesByType.set(e.entity_type_id, list);
-  }
+  const versionsByEntity = useMemo(() => {
+    const map = new Map<string, EntityVersion[]>();
+    for (const v of versionsQ.data ?? []) {
+      const arr = map.get(v.entity_id) ?? [];
+      arr.push(v);
+      map.set(v.entity_id, arr);
+    }
+    return map;
+  }, [versionsQ.data]);
+
+  const rankItems = useMemo(
+    () => buildRankPickerItems(chaptersQ.data ?? [], eventsQ.data ?? []),
+    [chaptersQ.data, eventsQ.data],
+  );
+
+  const decoratedEntities = useMemo(() => {
+    const list = entitiesQ.data ?? [];
+    return list.map((e) => {
+      const versions = versionsByEntity.get(e.id) ?? [];
+      const state = resolveStateAtRank(versions, rankCursor) ?? null;
+      const lastUpdated = versions.reduce<string>(
+        (acc, v) => (v.created_at > acc ? v.created_at : acc),
+        '',
+      );
+      const firstRank = versions.reduce<string | null>(
+        (acc, v) =>
+          acc === null || v.valid_from_rank < acc ? v.valid_from_rank : acc,
+        null,
+      );
+      return { entity: e, versions, state, lastUpdated, firstRank };
+    });
+  }, [entitiesQ.data, versionsByEntity, rankCursor]);
+
+  const beforeTypeFilter = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return decoratedEntities.filter(({ entity, state }) => {
+      if (q) {
+        const haystack = [entity.name, ...(entity.aliases ?? [])]
+          .join('\n')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      if (hideDead && rankCursor !== CURRENT_RANK_SENTINEL) {
+        const type = typesById.get(entity.entity_type_id);
+        const aliveField = type?.fields?.find(
+          (f) => f.name === 'alive' && f.kind === 'bool',
+        );
+        if (aliveField) {
+          const alive = state?.snapshot?.alive;
+          if (alive === false) return false;
+        }
+      }
+      return true;
+    });
+  }, [decoratedEntities, search, hideDead, rankCursor, typesById]);
+
+  const countsByType = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of beforeTypeFilter) {
+      counts.set(
+        row.entity.entity_type_id,
+        (counts.get(row.entity.entity_type_id) ?? 0) + 1,
+      );
+    }
+    return counts;
+  }, [beforeTypeFilter]);
+
+  const filtered = useMemo(
+    () =>
+      typeTab === 'all'
+        ? beforeTypeFilter
+        : beforeTypeFilter.filter((row) => row.entity.entity_type_id === typeTab),
+    [beforeTypeFilter, typeTab],
+  );
+
+  const sorted = useMemo(() => {
+    const arr = filtered.slice();
+    if (sort === 'name') {
+      arr.sort((a, b) => a.entity.name.localeCompare(b.entity.name));
+    } else if (sort === 'updated') {
+      arr.sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated));
+    } else if (sort === 'appearance') {
+      arr.sort((a, b) => {
+        if (a.firstRank === null && b.firstRank === null) return 0;
+        if (a.firstRank === null) return 1;
+        if (b.firstRank === null) return -1;
+        return a.firstRank < b.firstRank ? -1 : a.firstRank > b.firstRank ? 1 : 0;
+      });
+    }
+    return arr;
+  }, [filtered, sort]);
+
+  const groupedByType = useMemo(() => {
+    const map = new Map<string, typeof sorted>();
+    for (const row of sorted) {
+      const list = (map.get(row.entity.entity_type_id) ?? []) as typeof sorted;
+      list.push(row);
+      map.set(row.entity.entity_type_id, list);
+    }
+    return map;
+  }, [sorted]);
 
   return (
     <main className="mx-auto flex h-full max-w-3xl flex-col gap-6 overflow-y-auto px-6 py-6">
-      <header>
-        <Link
-          to="/worlds/$worldId"
-          params={{ worldId }}
-          className="text-sm text-fg-muted hover:text-fg"
-          data-testid="back-to-world"
+      <header className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <Link
+            to="/worlds/$worldId"
+            params={{ worldId }}
+            className="text-sm text-fg-muted hover:text-fg"
+            data-testid="back-to-world"
+          >
+            ← {worldQ.data?.name ?? 'World'}
+          </Link>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Entities</h1>
+        </div>
+        <button
+          type="button"
+          onClick={() => setTypesModalOpen(true)}
+          className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
+          data-testid="open-types-modal"
         >
-          ← {worldQ.data?.name ?? 'World'}
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Entities</h1>
+          ⚙ Types
+        </button>
       </header>
 
-      <section className="space-y-3" data-testid="types-section">
-        <h2 className="text-sm font-semibold text-fg-muted">Entity types</h2>
-        <form onSubmit={onAddType} className="flex gap-2" data-testid="create-type-form">
-          <input
-            value={newTypeName}
-            onChange={(e) => setNewTypeName(e.target.value)}
-            placeholder="e.g. Character, Location, Faction…"
-            className="flex-1 px-3 py-2 text-sm"
-            data-testid="create-type-name"
-          />
-          <button
-            type="submit"
-            disabled={createType.isPending || !newTypeName.trim()}
-            className="bg-accent px-3 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
-            data-testid="create-type-submit"
-          >
-            Add
-          </button>
-        </form>
-        {typesQ.error ? (
-          <p className="text-sm text-red-400" data-testid="types-error">
-            {typesQ.error.message}
-          </p>
-        ) : null}
-        {createType.error ? (
-          <p className="text-sm text-red-400" data-testid="types-error">
-            {createType.error.message}
-          </p>
-        ) : null}
-        {typesQ.isLoading ? (
-          <p className="text-sm text-fg-muted">Loading…</p>
-        ) : typesQ.data && typesQ.data.length > 0 ? (
-          <ul className="flex flex-wrap gap-2" data-testid="types-list">
-            {typesQ.data.map((t) => {
-              const color = resolveColor(t.color, t.name);
-              return (
-                <li
-                  key={t.id}
-                  className="flex items-center gap-2 rounded-md border px-3 py-1 text-sm"
-                  style={{
-                    backgroundColor: chipBgFromHex(color),
-                    borderColor: chipBorderFromHex(color),
-                  }}
-                  data-testid="type-chip"
-                >
-                  <Link
-                    to="/worlds/$worldId/entity-types/$typeId"
-                    params={{ worldId, typeId: t.id }}
-                    className="hover:underline"
-                    data-testid="type-link"
-                  >
-                    {t.name}
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteType(t)}
-                    className="text-xs text-fg-muted hover:text-red-400"
-                    aria-label={`Delete type ${t.name}`}
-                    data-testid="type-delete"
-                  >
-                    ×
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        ) : typesQ.data ? (
-          <p className="text-sm text-fg-muted" data-testid="types-empty">
-            No types yet. Add one to start creating entities.
-          </p>
-        ) : null}
-      </section>
-
       <section className="space-y-3" data-testid="entities-section">
-        <h2 className="text-sm font-semibold text-fg-muted">Entities</h2>
         {typesQ.data && typesQ.data.length > 0 ? (
           <form onSubmit={onAddEntity} className="flex flex-wrap gap-2" data-testid="create-entity-form">
             <input
@@ -194,8 +224,98 @@ export function EntitiesScreen() {
             </button>
           </form>
         ) : (
-          <p className="text-sm text-fg-muted">Add a type above first.</p>
+          <p className="text-sm text-fg-muted">
+            No types yet — open <button
+              type="button"
+              onClick={() => setTypesModalOpen(true)}
+              className="underline hover:text-fg"
+            >
+              ⚙ Types
+            </button> to add one first.
+          </p>
         )}
+
+        <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="entities-toolbar">
+          <input
+            type="search"
+            value={searchRaw}
+            onChange={(e) => setSearchRaw(e.target.value)}
+            placeholder="Search name or alias…"
+            className="flex-1 min-w-[160px] px-2 py-1 text-xs"
+            data-testid="entities-search"
+          />
+          <label className="flex items-center gap-1 text-fg-muted">
+            <span>View as of</span>
+            <select
+              value={rankCursor}
+              onChange={(e) => setRankCursor(e.target.value)}
+              className="bg-bg-subtle px-2 py-1 text-xs"
+              data-testid="entities-rank-picker"
+            >
+              <option value={CURRENT_RANK_SENTINEL}>— current —</option>
+              {rankItems.map((it) => (
+                <option key={it.rank} value={it.rank}>
+                  {rankPickerLabel(it)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {rankCursor !== CURRENT_RANK_SENTINEL ? (
+            <label className="flex items-center gap-1 text-fg-muted">
+              <input
+                type="checkbox"
+                checked={hideDead}
+                onChange={(e) => setHideDead(e.target.checked)}
+                data-testid="entities-hide-dead"
+              />
+              Hide dead
+            </label>
+          ) : null}
+          <label className="flex items-center gap-1 text-fg-muted">
+            <span>Sort</span>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="bg-bg-subtle px-2 py-1 text-xs"
+              data-testid="entities-sort"
+            >
+              <option value="name">Name</option>
+              <option value="updated">Last update</option>
+              <option value="appearance">First appearance</option>
+            </select>
+          </label>
+        </div>
+
+        {(typesQ.data ?? []).length > 0 ? (
+          <div
+            className="-mx-1 flex flex-wrap items-center gap-1 border-b border-border pb-1"
+            data-testid="entities-type-tabs"
+          >
+            <TypeTab
+              active={typeTab === 'all'}
+              onClick={() => setTypeTab('all')}
+              label="All"
+              count={beforeTypeFilter.length}
+              color={null}
+              testid="type-tab-all"
+            />
+            {(typesQ.data ?? []).map((t) => {
+              const c = resolveColor(t.color, t.name);
+              return (
+                <TypeTab
+                  key={t.id}
+                  active={typeTab === t.id}
+                  onClick={() => setTypeTab(t.id)}
+                  label={t.name}
+                  count={countsByType.get(t.id) ?? 0}
+                  color={c}
+                  testid="type-tab"
+                />
+              );
+            })}
+          </div>
+        ) : null}
+
         {entitiesQ.error ? (
           <p className="text-sm text-red-400" data-testid="entities-error">
             {entitiesQ.error.message}
@@ -209,48 +329,145 @@ export function EntitiesScreen() {
 
         {entitiesQ.isLoading ? (
           <p className="text-sm text-fg-muted">Loading…</p>
-        ) : entitiesQ.data && entitiesQ.data.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <p className="text-sm text-fg-muted" data-testid="entities-empty">
-            No entities yet.
+            {(entitiesQ.data ?? []).length === 0
+              ? 'No entities yet.'
+              : 'No entities match the current filter.'}
           </p>
-        ) : entitiesQ.data ? (
+        ) : (
           <div className="space-y-4" data-testid="entities-list">
-            {Array.from(entitiesByType.entries()).map(([typeId, items]) => {
+            {Array.from(groupedByType.entries()).map(([typeId, items]) => {
               const type = typesById.get(typeId);
               const color = type ? resolveColor(type.color, type.name) : null;
               return (
                 <div key={typeId}>
-                  <div
-                    className="mb-1 text-xs uppercase tracking-wide"
-                    style={color ? { color } : undefined}
-                  >
-                    {type?.name ?? '(unknown type)'}
-                  </div>
+                  {typeTab === 'all' ? (
+                    <div
+                      className="mb-1 text-xs uppercase tracking-wide"
+                      style={color ? { color } : undefined}
+                    >
+                      {type?.name ?? '(unknown type)'}
+                    </div>
+                  ) : null}
                   <ul className="space-y-1">
-                    {items.map((e) => (
-                      <li key={e.id} data-testid="entity-row">
-                        <Link
-                          to="/worlds/$worldId/entities/$entityId"
-                          params={{ worldId, entityId: e.id }}
-                          className="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-panel px-3 py-2 text-sm hover:bg-bg-subtle"
-                          data-testid="entity-link"
-                        >
-                          <span className="flex-1">{e.name}</span>
-                          {(e.aliases?.length ?? 0) > 0 ? (
-                            <span className="text-xs text-fg-muted">
-                              aka {e.aliases.join(', ')}
-                            </span>
-                          ) : null}
-                        </Link>
-                      </li>
+                    {items.map((row) => (
+                      <EntityRow
+                        key={row.entity.id}
+                        worldId={worldId}
+                        entity={row.entity}
+                        type={type}
+                        snapshot={row.state?.snapshot ?? {}}
+                        hasState={!!row.state}
+                      />
                     ))}
                   </ul>
                 </div>
               );
             })}
           </div>
-        ) : null}
+        )}
       </section>
+
+      <EntityTypesEditorModal
+        worldId={worldId}
+        open={typesModalOpen}
+        onClose={() => setTypesModalOpen(false)}
+      />
     </main>
   );
+}
+
+interface EntityRowProps {
+  worldId: string;
+  entity: Entity;
+  type: EntityType | undefined;
+  snapshot: Snapshot;
+  hasState: boolean;
+}
+
+function EntityRow({ worldId, entity, type, snapshot, hasState }: EntityRowProps) {
+  const previewFields = pickPreviewFields(type?.fields ?? []);
+  return (
+    <li data-testid="entity-row">
+      <Link
+        to="/worlds/$worldId/entities/$entityId"
+        params={{ worldId, entityId: entity.id }}
+        className="flex flex-col gap-1 rounded-md border border-border bg-bg-panel px-3 py-2 text-sm hover:bg-bg-subtle"
+        data-testid="entity-link"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex-1">{entity.name}</span>
+          {(entity.aliases?.length ?? 0) > 0 ? (
+            <span className="text-xs text-fg-muted">
+              aka {entity.aliases.join(', ')}
+            </span>
+          ) : null}
+        </div>
+        {previewFields.length > 0 ? (
+          <div
+            className="flex flex-wrap gap-x-3 text-xs text-fg-muted"
+            data-testid="entity-preview"
+          >
+            {previewFields.map((f) => {
+              const display = formatFieldValue(snapshot[f.name] ?? null);
+              return (
+                <span key={f.name}>
+                  <span className="opacity-70">{f.name}:</span>{' '}
+                  <span className={display ? '' : 'italic opacity-60'}>
+                    {display ? truncate(display, 60) : hasState ? '—' : '(no version)'}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
+      </Link>
+    </li>
+  );
+}
+
+interface TypeTabProps {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+  color: string | null;
+  testid: string;
+}
+
+function TypeTab({ active, onClick, label, count, color, testid }: TypeTabProps) {
+  const style = active && color
+    ? { backgroundColor: chipBgFromHex(color), borderColor: chipBorderFromHex(color), color }
+    : undefined;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        'rounded-md border px-2 py-1 text-xs transition-colors ' +
+        (active
+          ? 'border-border bg-bg-subtle text-fg'
+          : 'border-transparent text-fg-muted hover:bg-bg-subtle hover:text-fg')
+      }
+      style={style}
+      data-testid={testid}
+      data-active={active ? 'true' : 'false'}
+    >
+      {label}
+      <span className="ml-1 text-[10px] opacity-70">{count}</span>
+    </button>
+  );
+}
+
+function pickPreviewFields(fields: FieldDef[]): FieldDef[] {
+  const usable = fields.filter(
+    (f) => (f.kind === 'string' || f.kind === 'text') && f.name !== 'alive',
+  );
+  return usable.slice(0, 2);
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + '…';
 }

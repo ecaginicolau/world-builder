@@ -2,23 +2,57 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
-## Status (2026-05-02 AM, session brainstorm post-v1)
+## Status (2026-05-02 PM, chunks (a)/(b)/(c) + type tabs livrés)
 
-Cette session est principalement un **brainstorm** sur la nav et l'expansion canonique. Pas de slice complète à shipper, mais 2 quick fixes ont atterri sur le versioning des entities + un doc de chantier détaillé.
+Chunks (a), (b), (c) du plan post-v1 livrés en une session, plus un ajout user-driven : tabs de filtre par type sur `/entities`. **Aucune migration appliquée** — toutes les features sont DB-compatible avec V010.
 
 ### Doc de chantier en cours
 
-**[docs/post-v1-nav-canon.md](./post-v1-nav-canon.md)** ⭐ — chunks (a) appbar / (b) entity types relégués / (c) page entities enrichie / (d) event upgrade. Décisions tranchées + tasks détaillées + critères de validation. Vivant — à compléter au fil du brainstorm.
+**[docs/post-v1-nav-canon.md](./post-v1-nav-canon.md)** ⭐ — chunks (a) appbar ✅ / (b) entity types relégués ✅ / (c) page entities enrichie ✅ / (d) event upgrade (à venir, prochaine session). Décisions tranchées + tasks détaillées + critères de validation.
 
-### Livré cette session
+### Livré cette session (PM)
 
-- **Bug fix** : accept de "Propose updates" créait des `entity_versions` au rank exact du chapitre → collisions silencieuses. Nouveau helper `rankAfterChapter` ([versioning.ts:96](../src/features/entities/versioning.ts:96)), wired dans [ProposeUpdatesModal.tsx:178](../src/features/chapters/ProposeUpdatesModal.tsx:178). Sémantique secondaire : versions désormais labellées "after Chapter X". 4 tests Vitest.
-- **UX TimelineRail** : remplacement du `<select>` rank cursor par une sidebar verticale d'anchors cliquables (initial → after item 1 → … → current). Layout `lg:grid-cols-[260px_1fr]`. Helpers `TimelineAnchor`, `buildAnchors`, `resolveStateAtAnchor`, `versionsByAnchor` dans `versioning.ts`. Validé visuellement live sur Iria.
-- **Migration V011 — NE PAS APPLIQUER** : [V011__slice_7x_entity_version_chapter_version.sql](../supabase/migrations/V011__slice_7x_entity_version_chapter_version.sql) est rendue obsolète par le pivot V3 du brainstorm. Le fichier reste sur le disque pour audit ; il ne touchera jamais la DB. La bonne migration sera V012 dans le chunk (d), qui ajoute `source_event_id` et drop la dimension chapter-as-source.
+- **(a) Appbar par mode** : 3 CSS vars `--mode-{brainstorm,canon,narrative}` dans [index.css](../src/index.css) ; [AppHeader.tsx](../src/components/AppHeader.tsx) réordonne les tabs en `[Notes] | [Entities · Timeline] | [Books · Read]` avec séparateurs visuels et bordure colorée sous le tab actif. Brainstorm = sky-300, Canon = amber-600, Narrative = rose-800.
+- **(b) Entity types relégués** : [EntityTypesEditorModal.tsx](../src/features/entities/EntityTypesEditorModal.tsx) ouverte via bouton `⚙ Types` en haut à droite de `/entities`. La page perd la section "Entity types" du flow principal — la création d'entité reste, le `<select>` du type reste alimenté par `useEntityTypes`. Modale = create, list (chips colorés), delete, link "→ Edit fields" (vers la page detail existante).
+- **(c) Page Entities enrichie** ([EntitiesScreen.tsx](../src/features/entities/EntitiesScreen.tsx)) :
+  - Search bar debounced 150ms sur `name + aliases`.
+  - "View as of" rank picker (chapitre/event) → résout le state via `resolveStateAtRank`.
+  - Toggle "Hide dead" (conditionnel, apparaît si rank ≠ current) : si le type a un field bool `alive`, masque les entités où `alive === false` à ce rank.
+  - Aperçu inline : 2 premiers fields `string`/`text` du type (hors `alive`), valeur résolue au rank courant. Sans migration `entity_types.preview_fields` : on prend automatiquement via le helper local `pickPreviewFields`.
+  - Sort selector : Name (default) / Last update (max `entity_versions.created_at`) / First appearance (min `valid_from_rank`).
+  - Nouvelle query bulk [`useEntityVersionsByWorld`](../src/lib/queries/entityVersions.ts) — invalide aussi par `byWorld` quand on crée une version.
+- **Type tabs** (ajout post-(c) sur retour du user) : barre de tabs au-dessus de la liste, "All N" + un tab par type avec compteur. Tab actif = chip pastel + texte coloré (couleur du type). Quand un type unique est sélectionné, le heading de groupe est masqué (devenu redondant). Compteurs reflètent l'état post-search/post-hide-dead. Skip le scroll infini quand on aura 100+ entités.
 
-### À reprendre dans une prochaine session
+### Validation
 
-Voir l'**ordre suggéré** dans [post-v1-nav-canon.md](./post-v1-nav-canon.md#ordre-suggéré-des-sessions-futures). En résumé : (a) → (b) → polish proposals (V011 + filtre stale) → (c) → (d).
+- typecheck ✓ · lint ✓ (1 warning pré-existant) · 87 Vitest ✓ · build prod ✓
+- Smoke Chrome live (Smoke Test World, 7 entities) :
+  - Appbar : 3 couleurs distinctes vues sur Notes/Entities/Books, séparateurs présents.
+  - `/entities` : "⚙ Types" ouvre la modale, Items/Lieux/Personnages listés avec leurs couleurs.
+  - Tabs : All 7 / Items 1 / Lieux 2 / Personnages 4. Click Personnages → 4 lignes affichées sans heading de groupe.
+  - Search "iri" → filtre à Iria seulement, aperçu `bio:` correct.
+  - Toolbar (rank picker, sort, hide-dead conditionnel) rendu correctement.
+
+### À reprendre dans une prochaine session — point d'entrée
+
+**Prochaine session = chunk (d) Event upgrade + pivot canonical** (gros chunk >1 journée).
+
+Lire **[post-v1-nav-canon.md § d](./post-v1-nav-canon.md#d-event-upgrade--events-comme-source-canonique--funnel-dextraction-depuis-les-chapters)** pour le détail. Résumé exécutable :
+
+1. **Migration V012** à préparer en début de session, à faire appliquer par le user avant de coder :
+   - Drop `chapters.chronological_rank`, `entity_versions.source_chapter_id` (et `source_chapter_version_id` si V011 a été appliquée — ce n'est pas le cas)
+   - Add `events.description_html`, `chapters.last_analyzed_at`
+   - Add `entity_versions.source_event_id` + index unique partiel `entity_versions_single_init` (1 seule version sans event source par entity)
+   - New table `chapter_events (chapter_id, event_id, narrative_rank)` — M:M, cascade delete des deux côtés
+   - New table `event_participants (event_id, entity_id, pinned_manually)` — calque de `chapter_participants`
+   - `truncate entity_versions` (data de test, on reset)
+2. **EventScreen** = layout 3-col chapter-light (description Tiptap mini + LinkedEntitiesPanel/DetectedEntitiesPanel + ChatPanel).
+3. **Refonte TimelineScreen** events-first (chips de chapters par event, marqueur off-screen).
+4. **Funnel "Propose canon from chapter"** : LLM propose des events → accept → entity_versions générées avec `source_event_id`.
+5. **M:M chapter_events** + drag-to-reorder du `narrative_rank` côté chapter (dnd-kit).
+6. **Création de chapter forcée à ≥ 1 event** (rule métier, pas SQL).
+
+Risque architectural : factoriser proprement chapter/event (chat + propose + linkSource) sans dupliquer 80% du code. Cf. la note "Risque architectural" dans § d.
 
 ---
 

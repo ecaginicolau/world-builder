@@ -37,7 +37,7 @@ V1 livrée (Slices 0-8). En usage réel sur un projet d'écriture, 3 frottements
 
 ## Chunks (par ordre de risque croissant)
 
-### a. Cosmétique appbar — groupement visuel par mode
+### a. Cosmétique appbar — groupement visuel par mode ✅ LIVRÉ (2026-05-02 PM)
 
 **Goal** : que le user voie d'un coup d'œil les 3 modes sans cliquer.
 
@@ -62,7 +62,7 @@ Cohérent avec le ton "world-builder", assez sourd pour pas crier sur le dark th
 - Switch `Notes → Entities → Books` montre 3 couleurs distinctes dans l'underline du tab actif.
 - Aucun CLS / regression visuelle sur les pages.
 
-### b. Reléguer entity types — édition derrière un bouton
+### b. Reléguer entity types — édition derrière un bouton ✅ LIVRÉ (2026-05-02 PM)
 
 **Goal** : `/entities` redevient une vraie page de travail sur les entités, pas un mélange config + contenu.
 
@@ -79,7 +79,11 @@ Cohérent avec le ton "world-builder", assez sourd pour pas crier sur le dark th
 - Le bouton `⚙ Types` ouvre tout le scope d'édition de types qu'on avait avant.
 - Pas de régression sur la création d'entité (le `<select>` du type fonctionne).
 
-### c. Page Entities enrichie — vraie page de travail
+### c. Page Entities enrichie — vraie page de travail ✅ LIVRÉ (2026-05-02 PM)
+
+**Notes d'implém** :
+- Pas de migration `entity_types.preview_fields` — on prend automatiquement les 2 premiers fields utilisables du type (string/text, hors `alive`) via le helper local `pickPreviewFields`. Si un control fin par type devient utile, ressortir la migration.
+- **Type tabs ajoutées** post-livraison (retour user) : barre de tabs "All N" + un tab par type (avec compteur), au-dessus de la liste. Tab actif = chip pastel + texte coloré (couleur du type). Quand un type unique est sélectionné, le heading de groupe disparaît. Compteurs reflètent l'état post-search/post-hide-dead.
 
 **Tasks** (mini-slice, ~½ journée)
 - **Search bar** au top : filtre client-side (debounced 150ms) sur `name + aliases`. Indispensable au-delà de ~30 entités.
@@ -253,12 +257,10 @@ Sur Iria : 5 versions au rank exact "Confrontation à la forteresse" (créées a
 
 ## Ordre suggéré des sessions futures
 
-1. **(a) Cosmétique appbar** — 1h, isolé, low risk.
-2. **(b) Reléguer entity types** — 1h, isolé.
-3. **(c) Page Entities enrichie** — ½ journée, mini-slice.
-4. **(d) Event upgrade + pivot canonical** — gros chunk (>1 journée), inclut migration V012, refonte TimelineScreen, funnel propose-events-from-chapter, M:M chapter_events. Décide à l'attaque si on absorbe V011 ou pas.
-
-(c) peut être fait avant ou après (d), au feeling.
+1. **(a) Cosmétique appbar** ✅ — 1h, isolé, low risk.
+2. **(b) Reléguer entity types** ✅ — 1h, isolé.
+3. **(c) Page Entities enrichie** ✅ — ½ journée, mini-slice.
+4. **(d) Event upgrade + pivot canonical** ⏳ prochaine session — gros chunk (>1 journée), inclut migration V012, refonte TimelineScreen, funnel propose-events-from-chapter, M:M chapter_events. V011 reste obsolète/non-appliquée — V012 part directement de l'état V010 et reset les `entity_versions`.
 
 ## Évolution du brainstorm (historique)
 

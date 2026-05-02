@@ -12,10 +12,17 @@ function extractWorldId(pathname: string): string | null {
 }
 
 type Section = 'notes' | 'entities' | 'books' | 'timeline' | 'read' | 'runs' | 'settings';
+type Mode = 'brainstorm' | 'canon' | 'narrative';
+
+const MODE_COLOR: Record<Mode, string> = {
+  brainstorm: 'var(--mode-brainstorm)',
+  canon: 'var(--mode-canon)',
+  narrative: 'var(--mode-narrative)',
+};
 
 function activeSection(pathname: string, worldId: string | null): Section | null {
   if (!worldId) return null;
-  if (pathname.includes('/entities')) return 'entities';
+  if (pathname.includes('/entities') || pathname.includes('/entity-types')) return 'entities';
   if (pathname.includes('/read')) return 'read';
   if (pathname.includes('/books') || pathname.includes('/chapters/')) return 'books';
   if (pathname.includes('/timeline')) return 'timeline';
@@ -100,38 +107,45 @@ export function AppHeader() {
             to="/worlds/$worldId"
             params={{ worldId }}
             active={section === 'notes'}
+            mode="brainstorm"
             label="Notes"
             icon="📝"
             testid="tab-notes"
           />
+          <ModeSeparator />
           <SectionLink
             to="/worlds/$worldId/entities"
             params={{ worldId }}
             active={section === 'entities'}
+            mode="canon"
             label="Entities"
             icon="🧬"
             testid="tab-entities"
           />
           <SectionLink
+            to="/worlds/$worldId/timeline"
+            params={{ worldId }}
+            active={section === 'timeline'}
+            mode="canon"
+            label="Timeline"
+            icon="📅"
+            testid="tab-timeline"
+          />
+          <ModeSeparator />
+          <SectionLink
             to="/worlds/$worldId/books"
             params={{ worldId }}
             active={section === 'books'}
+            mode="narrative"
             label="Books"
             icon="📚"
             testid="tab-books"
           />
           <SectionLink
-            to="/worlds/$worldId/timeline"
-            params={{ worldId }}
-            active={section === 'timeline'}
-            label="Timeline"
-            icon="📅"
-            testid="tab-timeline"
-          />
-          <SectionLink
             to="/worlds/$worldId/read"
             params={{ worldId }}
             active={section === 'read'}
+            mode="narrative"
             label="Read"
             icon="📖"
             testid="tab-read"
@@ -193,24 +207,34 @@ interface SectionLinkProps {
     | '/worlds/$worldId/read';
   params: { worldId: string };
   active: boolean;
+  mode: Mode;
   label: string;
   icon: string;
   testid: string;
 }
 
-function SectionLink({ to, params, active, label, icon, testid }: SectionLinkProps) {
+function SectionLink({ to, params, active, mode, label, icon, testid }: SectionLinkProps) {
+  const color = MODE_COLOR[mode];
   return (
     <Link
       to={to}
       params={params}
       className={
-        'px-2 py-1 text-sm ' +
-        (active ? 'bg-accent text-accent-fg' : 'bg-bg-subtle hover:bg-bg-panel')
+        'border-b-2 px-2 py-1 text-sm transition-colors ' +
+        (active
+          ? 'bg-bg-subtle text-fg'
+          : 'border-transparent bg-bg-subtle text-fg-muted hover:bg-bg-panel hover:text-fg')
       }
+      style={active ? { borderBottomColor: color, color } : undefined}
       data-testid={testid}
+      data-mode={mode}
     >
       <span className="hidden sm:inline">{label}</span>
       <span className="sm:hidden" aria-label={label}>{icon}</span>
     </Link>
   );
+}
+
+function ModeSeparator() {
+  return <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />;
 }

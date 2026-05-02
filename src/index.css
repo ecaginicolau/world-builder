@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --mode-brainstorm: #7dd3fc;
+  --mode-canon: #d97706;
+  --mode-narrative: #9f1239;
+}
+
 html,
 body,
 #root {
