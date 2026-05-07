@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import {
   useEvent,
@@ -74,10 +74,18 @@ export function EventScreen() {
     return out;
   }, [linkSource.links, entitiesQ.data, typesQ.data]);
 
-  const descriptionPlain = useMemo(
-    () => (event?.description_html ? htmlToPlainText(event.description_html) : event?.description ?? ''),
-    [event],
-  );
+  // Live HTML pushed by the editor on every keystroke — see notes in the other
+  // *Screen components for the rationale (decouples extract debounce from save).
+  const [liveText, setLiveText] = useState<string | null>(null);
+  useEffect(() => {
+    setLiveText(null);
+  }, [eventId]);
+
+  const descriptionPlain = useMemo(() => {
+    if (liveText !== null) return htmlToPlainText(liveText);
+    if (event?.description_html) return htmlToPlainText(event.description_html);
+    return event?.description ?? '';
+  }, [liveText, event]);
 
   const extract = useAutoExtract({
     parentKind: 'note',
@@ -125,7 +133,7 @@ export function EventScreen() {
   // the right content from the start.
   if (eventQ.isLoading || !event) {
     return (
-      <main className="mx-auto flex h-full max-w-screen-2xl flex-col gap-4 px-6 py-6">
+      <main className="mx-auto flex h-full max-w-[1800px] flex-col gap-4 px-6 py-6">
         <p className="text-fg-muted">Loading event…</p>
       </main>
     );
@@ -143,7 +151,7 @@ export function EventScreen() {
   const chronoIndex = sortedEvents.findIndex((e) => e.id === eventId);
 
   return (
-    <main className="mx-auto flex h-full max-w-screen-2xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
+    <main className="mx-auto flex h-full max-w-[1800px] flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <header className="flex items-center justify-between gap-2">
         <Link
           to="/worlds/$worldId/timeline"
@@ -206,7 +214,7 @@ export function EventScreen() {
         )}
       </section>
 
-      <div className="grid min-h-0 flex-1 gap-4 grid-cols-1 md:grid-cols-[260px_1fr_320px]">
+      <div className="grid min-h-0 flex-1 gap-4 grid-cols-1 md:grid-cols-[260px_1fr_540px]">
         <aside className="order-2 flex min-h-0 flex-col gap-4 overflow-y-auto md:order-1">
           <LinkedEntitiesPanel worldId={worldId} source={linkSource} />
           <DetectedEntitiesPanel
@@ -224,6 +232,7 @@ export function EventScreen() {
             key={event.id}
             initialContent={event.description_html ?? ''}
             onChange={onEditorDebouncedChange}
+            onLiveUpdate={setLiveText}
             entityHighlights={entityHighlights}
           />
         </div>

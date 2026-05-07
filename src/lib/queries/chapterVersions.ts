@@ -3,10 +3,24 @@ import { supabase } from '@/lib/supabase';
 import { nextRankAfter } from '@/lib/ranks';
 import type { ChapterVersion, ChapterVersionOrigin } from '@/features/chapters/types';
 import { chaptersKeys } from './chapters';
+import { chapterWordCountsKeys } from './chapterWordCounts';
 
 export const chapterVersionsKeys = {
   byChapter: (chapterId: string) => ['chapterVersions', 'byChapter', chapterId] as const,
 };
+
+/** Fetch specific chapter_versions by ID in one query — used by bulk export. */
+export async function fetchVersionsByIds(
+  ids: string[],
+): Promise<{ id: string; chapter_id: string; text: string }[]> {
+  if (!ids.length) return [];
+  const { data, error } = await supabase
+    .from('chapter_versions')
+    .select('id, chapter_id, text')
+    .in('id', ids);
+  if (error) throw error;
+  return data as { id: string; chapter_id: string; text: string }[];
+}
 
 export function useChapterVersions(chapterId: string) {
   return useQuery<ChapterVersion[], Error>({
@@ -77,6 +91,7 @@ export function useCreateChapterVersion() {
     onSuccess: (v) => {
       void qc.invalidateQueries({ queryKey: chapterVersionsKeys.byChapter(v.chapter_id) });
       void qc.invalidateQueries({ queryKey: chaptersKeys.detail(v.chapter_id) });
+      void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(v.world_id) });
     },
   });
 }
@@ -101,6 +116,7 @@ export function useUpdateChapterVersionText() {
     },
     onSuccess: (v) => {
       void qc.invalidateQueries({ queryKey: chapterVersionsKeys.byChapter(v.chapter_id) });
+      void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(v.world_id) });
     },
   });
 }

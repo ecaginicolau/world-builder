@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   useCreateThread,
   useInsertMessage,
@@ -325,19 +326,31 @@ export function ChatPanel({
         ) : messagesQ.data && messagesQ.data.length === 0 ? (
           <p className="text-sm text-fg-muted">No messages yet.</p>
         ) : (
-          messagesQ.data?.map((m) => (
-            <div
-              key={m.id}
-              className={
-                m.role === 'user'
-                  ? 'self-end whitespace-pre-wrap rounded-md bg-accent/30 px-3 py-2 text-sm'
-                  : 'whitespace-pre-wrap rounded-md bg-bg-subtle px-3 py-2 text-sm'
-              }
-              data-testid={`chat-message-${m.role}`}
-            >
-              {m.content}
-            </div>
-          ))
+          messagesQ.data?.map((m) =>
+            m.role === 'user' ? (
+              <div
+                key={m.id}
+                className="self-end whitespace-pre-wrap rounded-md bg-accent/30 px-3 py-2 text-sm"
+                data-testid="chat-message-user"
+              >
+                {m.content}
+              </div>
+            ) : (
+              <div
+                key={m.id}
+                className="prose prose-invert prose-sm max-w-none rounded-md bg-bg-subtle px-3 py-2 text-sm leading-relaxed"
+                data-testid="chat-message-assistant"
+              >
+                <ReactMarkdown
+                  components={{
+                    hr: () => <div className="h-2" aria-hidden="true" />,
+                  }}
+                >
+                  {m.content}
+                </ReactMarkdown>
+              </div>
+            ),
+          )
         )}
       </div>
 
@@ -349,14 +362,21 @@ export function ChatPanel({
 
       <form
         onSubmit={onSubmit}
-        className="flex gap-2 border-t border-border p-2"
+        className="flex items-end gap-2 border-t border-border p-2"
         data-testid="chat-form"
       >
-        <input
+        <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about this…"
-          className="flex-1 px-3 py-2 text-sm"
+          onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void onSubmit(e as unknown as FormEvent);
+            }
+          }}
+          placeholder="Ask about this… (Shift+Enter for newline)"
+          rows={3}
+          className="flex-1 resize-y px-3 py-2 text-sm"
           data-testid="chat-input"
           disabled={sending}
         />

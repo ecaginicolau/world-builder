@@ -35,3 +35,15 @@ input,
 textarea {
   @apply bg-bg-subtle border border-border text-fg placeholder:text-fg-muted focus:outline-none focus:ring-2 focus:ring-accent rounded-md;
 }
+
+/* Tailwind preflight strips default <p> margins, but Tiptap renders chapter
+ * text as bare <p> blocks inside .ProseMirror — without margins it reads as a
+ * wall of text. Restore vertical breathing room. The `prose` typography plugin
+ * also applies inside the editor, but this defensive rule keeps things sane
+ * even if `prose` isn't loaded on a given surface. */
+.ProseMirror p {
+  margin-bottom: 0.85em;
+}
+.ProseMirror p:last-child {
+  margin-bottom: 0;
+}

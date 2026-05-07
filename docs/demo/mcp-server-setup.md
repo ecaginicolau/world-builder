@@ -1,8 +1,8 @@
-# MCP server setup (slice 2a.1)
+# MCP server setup (slice 2a)
 
-This walkthrough sets up the **World Builder MCP server** locally so an MCP-compatible client (Claude Desktop, mcp inspector, claude-code, custom agents) can read and write your worlds.
+This walkthrough sets up the **World Builder MCP server** locally so an MCP-compatible client (Claude Code, Claude Desktop, mcp inspector, custom agents) can read and write your worlds.
 
-> Slice 2a.1 ships **47 tools**: 18 reads, 29 writes (all logged), and the `get_writing_guide` orientation tool. The 4 LLM intent tools (`auto_extract_from_note`, `propose_canon_from_chapter`, `upscale_chapter`, `summarize_chapter`) are deferred to slice 2a.2 — for now, run those from the app UI.
+> Slice 2a ships **51 tools**: 18 reads, 29 writes (all logged), `get_writing_guide` orientation tool, and 4 LLM intents (`auto_extract_from_note`, `propose_canon_from_chapter`, `upscale_chapter`, `summarize_chapter`) added in 2a.2.
 
 ## Pre-requisites
 
@@ -55,7 +55,7 @@ Then expand the **Environment Variables** section and add 3 entries:
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` |
 | `OWNER_USER_ID` | your auth.users.id UUID |
 
-Click **Connect**. The "Disconnected" indicator turns green and the **Tools** tab lists 47 tools. Try:
+Click **Connect**. The "Disconnected" indicator turns green and the **Tools** tab lists 51 tools. Try:
 
 1. `list_worlds` → returns your worlds
 2. `get_writing_guide` with a `world_id` → returns lore + flow recipe + business rules

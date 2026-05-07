@@ -9,10 +9,59 @@ const FieldValueSchema = z
   .union([z.string(), z.number(), z.boolean(), z.null()])
   .describe("Allowed entity field value: string | number | boolean | null");
 
+const FieldDefSchema = z.object({
+  name: z.string().min(1),
+  kind: z.enum(["string", "text", "int", "bool"]),
+  required: z.boolean().optional(),
+  help: z.string().optional(),
+});
+
 export function registerEntitiesWriteTools(
   server: McpServer,
   ctx: ServerContext,
 ) {
+  server.registerTool(
+    "create_entity_type",
+    {
+      title: "Create entity type",
+      description:
+        "Create a new entity type (category) in the world — e.g. Character, Location, Faction. Fields define the schema for entities of this type. Returns the new type with its id, which can be passed as type_id to create_entity.",
+      inputSchema: {
+        world_id: z.string().uuid(),
+        name: z.string().min(1),
+        color: z.string().nullish(),
+        icon: z.string().nullish(),
+        fields: z.array(FieldDefSchema).optional(),
+      },
+    },
+    async ({ world_id, name, color, icon, fields }) => {
+      const r = await ctx.supabase
+        .from("entity_types")
+        .insert({
+          world_id,
+          owner_id: ctx.ownerId,
+          name: name.trim(),
+          color: color ?? null,
+          icon: icon ?? null,
+          fields: fields ?? [],
+        })
+        .select("*")
+        .single();
+      if (r.error) return fail(r.error.message);
+      await ctx.logAction({
+        worldId: world_id,
+        actionKind: "create_entity_type",
+        targetKind: "entity_type",
+        targetId: r.data.id,
+        payload: {
+          name: r.data.name,
+          field_count: (fields ?? []).length,
+        },
+      });
+      return ok(r.data);
+    },
+  );
+
   server.registerTool(
     "create_entity",
     {

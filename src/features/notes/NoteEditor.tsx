@@ -17,6 +17,13 @@ interface Props {
   entityHighlights?: EntityHighlightSpec[];
   /** Read-only: disables editing and the typing UI. */
   readOnly?: boolean;
+  /**
+   * Fires on every doc-changed transaction, no debounce. Lets callers feed the
+   * live editor HTML to debounced consumers (e.g. auto-extract) without waiting
+   * for the save round-trip — otherwise the consumer's own debounce starts ~600ms
+   * late and never converges while the user keeps typing.
+   */
+  onLiveUpdate?: (html: string) => void;
 }
 
 export interface NoteEditorHandle {
@@ -25,12 +32,14 @@ export interface NoteEditorHandle {
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandle, Props>(function NoteEditor(
-  { initialContent, onChange, debounceMs = 400, entityHighlights, readOnly = false },
+  { initialContent, onChange, debounceMs = 400, entityHighlights, readOnly = false, onLiveUpdate },
   ref,
 ) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onLiveUpdateRef = useRef(onLiveUpdate);
+  onLiveUpdateRef.current = onLiveUpdate;
 
   const editor = useEditor({
     extensions: [
@@ -54,6 +63,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, Props>(function NoteEdito
       // Belt-and-suspenders: also require the transaction to actually change the doc.
       if (!transaction.docChanged) return;
       const html = editor.getHTML();
+      onLiveUpdateRef.current?.(html);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
         onChangeRef.current(html);

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { fail, ok } from "../response.js";
 import { nextRankAfter } from "../ranks.js";
+import { syncRichText } from "../richText.js";
 
 export function registerEventsWriteTools(
   server: McpServer,
@@ -47,14 +48,18 @@ export function registerEventsWriteTools(
           })),
         );
       }
+      const synced = syncRichText({
+        plain: description ?? null,
+        html: description_html ?? null,
+      });
       const r = await ctx.supabase
         .from("events")
         .insert({
           world_id,
           owner_id: ctx.ownerId,
           title: title.trim(),
-          description: description ?? null,
-          description_html: description_html ?? null,
+          description: synced.plain,
+          description_html: synced.html,
           chronological_rank: rank,
           tags: tags ?? [],
           source_note_id: source_note_id ?? null,
@@ -98,9 +103,17 @@ export function registerEventsWriteTools(
     }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title.trim();
-      if (description !== undefined) patch.description = description;
-      if (description_html !== undefined)
-        patch.description_html = description_html;
+      // Keep plain ↔ html in sync — the editor reads description_html, the
+      // timeline list view falls back to description. If only one is provided,
+      // derive the other.
+      if (description !== undefined || description_html !== undefined) {
+        const synced = syncRichText({
+          plain: description ?? null,
+          html: description_html ?? null,
+        });
+        patch.description = synced.plain;
+        patch.description_html = synced.html;
+      }
       if (chronological_rank !== undefined)
         patch.chronological_rank = chronological_rank;
       if (tags !== undefined) patch.tags = tags;

@@ -51,6 +51,15 @@ describe('entityCandidateSchema', () => {
     });
     expect(r.success).toBe(true);
   });
+
+  it('accepts matchedEntityId: null (LLM emits explicit null in json_object mode)', () => {
+    const r = entityCandidateSchema.safeParse({
+      name: 'Iria',
+      type: 'Character',
+      matchedEntityId: null,
+    });
+    expect(r.success).toBe(true);
+  });
 });
 
 describe('extractEntitiesMock', () => {

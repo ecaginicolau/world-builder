@@ -2,6 +2,117 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-02 nuit++++, slice 2b — agents docs livrées + 2a.2 validé live)
+
+**Slice 2b (post-v1, vision v2 IA externe — agents qui consomment le MCP) livrée côté docs. 2a.2 validé live en passant. Aucune migration, aucun code app.**
+
+### Validation live des 4 intents (2a.2 closure)
+
+Les 4 intent tools du MCP testés sur le Smoke Test World, OpenAI cloud :
+- `auto_extract_from_note` sur la note "test 2" (Eric / charrette / messager) → 4 candidates (Eric Personnages, bague brisée + charrette renversée + cheval Items), provider=openai/gpt-5.4-nano. ✓
+- `propose_canon_from_chapter` sur "Confrontation à la forteresse" (chapter avec canon déjà en place) → 1 nouvel event proposé "Iria défie Sorn" (les events déjà liés correctement skippés), provider=openai/gpt-5.4-mini. ✓
+- `upscale_chapter` sur "test" avec prompt "resserre le rythme + une métaphore forte" → nouvelle chapter_versions row insérée (origin='upscale'), final_version_id flippé, prose retournée cohérente avec world_memory + custom_prompt FR, provider=openai/gpt-5.4 (best tier). ✓
+- `summarize_chapter` level S sur le même chapter (post-upscale) → résumé FR ~50 mots, écrit dans `chapters.summary_s`, provider=openai/gpt-5.4-nano. ✓
+
+Provider routing par tier respecté (nano cheapest / mini medium / full best). Skip-already-canon respecté. Snapshot resolution à derived chrono OK. Logging `runs` + `agent_actions` à valider en ouvrant l'app `/agent-activity` + `/runs` mais le code est testé unitairement.
+
+### Slice 2b — livrables docs
+
+Spec source : [docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md).
+
+5 docs `docs/agents/*` + 4 slash commands `.claude/commands/*` + 1 demo guide :
+
+- **[docs/agents/system-prompts.md](./agents/system-prompts.md)** — recueil indépendant du runtime : 3 Drafting variants (V1 Collaborateur / V2 Rédacteur default / V3 Gardien du Canon) + 4 rôles (Drafter, Continuity Checker, World Expander, Editor) avec model recommandé Sonnet/Opus per-rôle.
+- **[.claude/commands/drafter.md](../.claude/commands/drafter.md)**, **[continuity.md](../.claude/commands/continuity.md)**, **[world-expander.md](../.claude/commands/world-expander.md)**, **[editor.md](../.claude/commands/editor.md)** — 4 slash commands Claude Code project-scoped, commités, prêts à `/drafter` etc. dans une session.
+- **[docs/agents/setup.md](./agents/setup.md)** — walkthrough très court Claude Code (la config principale est déjà dans `.mcp.json` via 2a.1 ; juste vérifier les 51 tools + tester un slash command).
+- **[docs/agents/setup-claude-desktop.md](./agents/setup-claude-desktop.md)** — alternative Claude Desktop pour qui veut une UI chat dédiée. Path JSON par OS, créer 4 Projects, coller system prompts.
+- **[docs/agents/recipes.md](./agents/recipes.md)** — 5 recettes opérationnelles A→E (Draft from scratch / Audit cohérence / Étoffer entity / Polish for publish / Cascade Drafter→Editor) avec format step-by-step et liste exacte des tool calls attendus.
+- **[docs/demo/agents-getting-started.md](./demo/agents-getting-started.md)** — demo guide consolidé pour valider 2b end-to-end sur le Smoke Test World : pre-flight, MCP wiring, smoke test des 4 personas, vérif `/agent-activity` + `/runs`, troubleshooting.
+
+### Décisions tranchées
+
+- **Claude Code = runtime principal**, Claude Desktop = alternative documentée mais non-default (config JSON pénible côté Windows).
+- **Slash commands project-scoped commités** dans `.claude/commands/` (vs Claude Desktop Projects qu'il faudrait re-paster manuellement).
+- **Default V2 "Rédacteur"** sur le Drafter (décisif, 1 question max par cycle), V3 "Gardien" sur le Continuity Checker (read-first).
+- **Pas de smoke test live des slash commands** dans cette session — ça nécessite un restart Claude Code pour que les nouveaux `.claude/commands/*.md` apparaissent dans le palette. À faire au prochain démarrage de session.
+- **Tuning de `get_writing_guide` reporté** à la première session post-restart où on smoke un agent V2 sur une vraie tâche (cf. tasks 6-7 de la spec). Pas de cycle d'itération possible depuis l'intérieur d'une session Claude Code (les changements de `packages/mcp-server/src/guide.ts` nécessitent un mcp:build + restart pour être pris en compte).
+
+### À reprendre dans une prochaine session — point d'entrée
+
+1. **Restart Claude Code** → vérifier que les 4 slash commands sont bien dans le palette.
+2. **Smoke test Drafter** sur Smoke Test World — Recipe A de [docs/agents/recipes.md](./agents/recipes.md). Observer les choix de l'agent (en bien et en mal). Vérifier `/agent-activity` et `/runs`.
+3. **Smoke test des 3 autres rôles** — Recipes B/C/D sur des chapitres existants.
+4. **Tuner `get_writing_guide`** côté [packages/mcp-server/src/guide.ts](../packages/mcp-server/src/guide.ts) selon les frottements observés. 3-5 cycles courts.
+5. **Demo guide post-tuning** : enrichir [docs/demo/agents-getting-started.md](./demo/agents-getting-started.md) avec les pièges réels constatés.
+
+Les 9 tâches de la spec [docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md) §"Tasks" : 1-5 livrées (docs), 6-9 à faire post-restart (smoke + tuning + demo polish).
+
+---
+
+## Status (2026-05-02 nuit+++, slice 2a.2 — MCP intent tools livrés)
+
+**Slice 2a.2 (post-v1, vision v2 IA externe — partie intents) code-complete. Aucune migration. Build app + mcp + typecheck + lint + 161 Vitest (41 nouveaux côté MCP) ✓. Validé live 2026-05-02 nuit++++ — cf. status au-dessus.**
+
+Slice 2a fully closed → MCP server expose **51 tools** (18 reads + 29 writes + 4 intents).
+
+### Livré
+
+- **`packages/mcp-server/src/llm/`** — port Node-side du provider abstraction app-side :
+  - `transport.ts` : `llmCall(body, mode, {supabase})` + `llmCallWithRetry` + `providerTag`. Cloud = `supabase.functions.invoke('llm-call')` (le SupabaseClient est passé en arg, pas importé module-level → testable). Local = `fetch(${endpoint}/chat/completions)` avec `AbortController` 60s timeout. Erreurs typées `LlmCallError` avec flag `retryable`.
+  - `routing.ts` : `pickTransport(settings, task, fallbackTier, opts)` identique à l'app-side, plus `modelForTier` inline (pas d'import openai.ts).
+  - `settings.ts` : `readRoutingSettings(supabase, ownerId)` → single-row select sur `user_settings` filtré `owner_id`.
+  - `runsLog.ts` : `logRun(supabase, input)` fire-and-forget vers la table `runs` (mêmes colonnes que app-side `src/lib/queries/runs.ts logRun()`).
+  - `html.ts` : `htmlToPlainText(html)` Node-only (pas de DOM), strip tags + entités HTML basiques.
+  - `extract.ts` / `proposeCanon.ts` / `upscale.ts` / `summaries.ts` : ports purs des 4 tasks app-side. Schémas Zod conservés. Mock impl droppée (cf. plan : pas de `import.meta.env` Node-side, l'agent appelle directement les writes pour tester sans LLM).
+- **`packages/mcp-server/src/pcc.ts`** — `buildPcc(supabase, ownerId, chapterId)` + `formatPccBlock(slots)`. Logique extraite du tool `get_pcc` (qui a été refactoré pour l'utiliser, gain ~80 lignes dupliquées) et utilisée par `upscale_chapter` quand `include_pcc=true` (default).
+- **`packages/mcp-server/src/tools/intents.ts`** — les 4 tools, tous loggent dans `runs` (success ET error paths) et dans `agent_actions` (success uniquement) :
+  - **`auto_extract_from_note(note_id)`** : lit note + entities + types + note_entities (déjà liés), build extract messages, call LLM, filtre les candidates dont `matchedEntityId` est déjà lié. Retour `{candidates, provider, model}`. L'agent reste maître de décider lesquels accepter et appelle `create_entity` / `link_entity_to_chapter` derrière.
+  - **`propose_canon_from_chapter(chapter_id)`** : lit chapter + final_version_text + chapter_events (skip-already-canon) + chapter_participants → entity cards résolues au `min(linked event chronological_rank)` (même logique que browser-side). Retour `{events, provider, model}`. L'agent applique via `create_event` + `link_event_to_chapter` + `link_entity_to_event` + `set_entity_field`.
+  - **`upscale_chapter(chapter_id, user_prompt, include_pcc?)`** : lit chapter + final_version + entity cards (résolues à derived chrono) + PCC (default on, via `buildPcc`). Insère `chapter_versions` (origin='upscale', text, user_prompt, parent_version_id) + flip `chapters.final_version_id`. Retour `{version_id, text, provider, model}`.
+  - **`summarize_chapter(chapter_id, level)`** : lit chapter + final_version_text, call LLM, update `chapters.summary_{s|m|l}`. Retour `{level, text, provider, model}`. Re-run écrase.
+- **Tests** (41 nouveaux, all green) :
+  - `transport.test.ts` (15) : local branch (POST shape, trailing slash strip, response_format, retryable/non-retryable errors, payload errors), cloud branch (3 — invoke success/error/invalid payload via stub SupabaseClient), `llmCallWithRetry` (3).
+  - `routing.test.ts` (11) : copie du fichier app-side, ajustée pour `null` settings.
+  - `extract.test.ts` (5) / `proposeCanon.test.ts` (4) / `upscale.test.ts` (3) / `summaries.test.ts` (3) : message-builders (system + user shape, optional fields) + parse path (valid response, JSON error, schema error).
+- **Plumbing** :
+  - `vite.config.ts` `test.include` étendu à `packages/*/src/**/*.{test,spec}.{ts,tsx}` (vitest root run picks them up).
+  - `packages/mcp-server/tsconfig.json` exclu `**/*.test.ts` du build (sinon les tests se retrouvent dans `dist/`).
+  - `tools/register.ts` : `registerIntentsTools(server, ctx)` activé (commentaire stub remplacé).
+  - Tool `get_pcc` refactoré pour utiliser le helper partagé `buildPcc`.
+
+### Décisions tranchées
+
+- **SupabaseClient passé en arg** au transport (pas importé module-level) → tests cloud-branch faciles via stub `{functions: {invoke: vi.fn()}}`. Différence d'API par rapport à l'app-side (browser-side, le `supabase` est un singleton import). Pas de regret : c'est plus propre Node-side.
+- **`buildPcc` extrait dans `src/pcc.ts`** plutôt que dupliqué dans intents.ts. Refactor du tool `get_pcc` au passage (~80 lignes en moins, même comportement).
+- **`include_pcc` default `true`** sur `upscale_chapter` (cf. plan : "browser-side l'inclut par défaut, penche pour same default"). L'agent peut couper à `false` s'il a une raison.
+- **Skip-already-extracted** (auto_extract) : oui, on filtre les candidates dont `matchedEntityId` est dans `note_entities`. Pas de raison de re-proposer ce que l'user/agent a déjà accepté.
+- **Skip-already-canon** (propose_canon) : oui, le titre + description des events déjà liés au chapter sont passés au prompt avec instruction explicite "do NOT re-propose these".
+- **Snapshot resolution à derived chrono** (propose_canon, upscale) : on utilise `min(chronological_rank des linked events)` quand le chapter en a au moins un, sinon `CURRENT_RANK_SENTINEL` (état actuel). Identique au browser-side.
+- **Run logging double-paths** (success + error) : la row LLM-only dans `runs` est utile pour debug même si l'écriture en DB derrière échoue. La duration_ms est mesurée seulement sur l'appel LLM, pas sur l'écriture en DB derrière.
+- **Pas de buildMessages générique porté** : seuls les 4 message-builders task-specific (qui existent inline dans extract/proposeCanon/upscale/summaries.ts) sont nécessaires. Le builder `buildMessages` du chat (`src/lib/llm/prompt.ts`) sert l'interactif chat humain↔LLM, pas exposé via MCP.
+
+### Validation
+
+- root typecheck (app + mcp via project references) ✓
+- lint ✓ (1 warning pré-existant `router.tsx`)
+- 161 Vitest ✓ (120 existants + 41 nouveaux : 15 transport + 11 routing + 5 extract + 4 proposeCanon + 3 upscale + 3 summaries)
+- mcp build ✓ (`dist/` clean, plus de fichiers `.test.js` dedans)
+- prod app build ✓
+- **Live à valider au prochain restart de session Claude Code** : (a) reconnect stdio → `mcp__world-builder__*` doit lister 51 tools (47 + 4), (b) appeler `auto_extract_from_note` sur une note réelle → vérif candidates returnées + 1 row dans `runs` (kind=auto_extract) + 1 row dans `agent_actions` (action_kind=auto_extract_from_note). (c) Idem pour les 3 autres intents.
+
+### À reprendre dans une prochaine session — point d'entrée
+
+**Slice 2a (MCP server) closed** : 51 tools exposés, ready for an agent.
+
+**Prochaine étape = slice 2b** (agents qui consomment), majoritairement documentaire — cf. **[docs/post-v1-mcp-agents.md](./post-v1-mcp-agents.md)**. En gros :
+1. Documenter les patterns d'usage côté Claude Desktop / claude-code (writing flow, extraction flow, canon flow, upscale flow, summarize flow) avec des prompts d'exemple.
+2. Tuner `get_writing_guide` à mesure qu'on découvre comment l'agent consomme le briefing en pratique.
+3. Éventuellement un `docs/demo/mcp-agent-walkthrough.md` qui pilote bout-en-bout via Claude Desktop.
+
+Pas de code attendu côté slice 2b sauf si on découvre un manque de tool. Compter 1-2 sessions docs.
+
+---
+
 ## Status (2026-05-02 nuit++, slice 2a.1 — MCP server reads + writes livrés et validés live)
 
 **Slice 2a.1 (post-v1, vision v2 IA externe — partie reads/writes) livrée et validée end-to-end. V015 appliquée. Build + typecheck + lint + 120 Vitest ✓ + prod build ✓. MCP wired dans Claude Code via `.mcp.json` project-scoped — les 47 tools sont accessibles côté assistant pendant les sessions de dev.**

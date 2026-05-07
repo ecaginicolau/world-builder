@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { fail, ok } from "../response.js";
+import { plainTextToHtml } from "../richText.js";
 
 export function registerNotesWriteTools(
   server: McpServer,
@@ -16,7 +17,12 @@ export function registerNotesWriteTools(
       inputSchema: {
         world_id: z.string().uuid(),
         title: z.string().nullish(),
-        content: z.string().optional(),
+        content: z
+          .string()
+          .optional()
+          .describe(
+            "Note body. Plain text (newlines = paragraph breaks) OR Tiptap HTML for rich formatting. Supported tags: <p>, <strong>, <em>, <s>, <code>, <h1>-<h6>, <ul>/<ol>/<li>, <blockquote>, <br>, <hr>. Plain text is auto-wrapped server-side.",
+          ),
       },
     },
     async ({ world_id, title, content }) => {
@@ -26,7 +32,7 @@ export function registerNotesWriteTools(
           world_id,
           owner_id: ctx.ownerId,
           title: title ?? null,
-          content: content ?? "",
+          content: plainTextToHtml(content ?? ""),
         })
         .select("*")
         .single();
@@ -51,14 +57,19 @@ export function registerNotesWriteTools(
       inputSchema: {
         note_id: z.string().uuid(),
         title: z.string().nullish(),
-        content: z.string().optional(),
+        content: z
+          .string()
+          .optional()
+          .describe(
+            "Note body. Plain text (newlines = paragraph breaks) OR Tiptap HTML for rich formatting. Supported tags: <p>, <strong>, <em>, <s>, <code>, <h1>-<h6>, <ul>/<ol>/<li>, <blockquote>, <br>, <hr>. Plain text is auto-wrapped server-side.",
+          ),
         status: z.enum(["open", "archived"]).optional(),
       },
     },
     async ({ note_id, title, content, status }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title;
-      if (content !== undefined) patch.content = content;
+      if (content !== undefined) patch.content = plainTextToHtml(content);
       if (status !== undefined) patch.status = status;
       if (Object.keys(patch).length === 0)
         return fail("No fields to update");

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useNote, useDeleteNote, useUpdateNote } from '@/lib/queries/notes';
 import { useWorld } from '@/lib/queries/worlds';
@@ -37,13 +37,21 @@ export function NoteScreen() {
   const [title, setTitle] = useState<string | null>(null);
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [promoteEventOpen, setPromoteEventOpen] = useState(false);
+  // Live HTML pushed by the editor on every keystroke (no debounce). Lets the
+  // auto-extract debounce reset on each keystroke instead of waiting for the
+  // 400ms save debounce + server round-trip.
+  const [liveContent, setLiveContent] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLiveContent(null);
+  }, [noteId]);
 
   const currentTitle = title ?? noteQ.data?.title ?? '';
 
   const noteTextForLlm = useMemo(() => {
-    if (!noteQ.data) return '';
-    return htmlToPlainText(noteQ.data.content);
-  }, [noteQ.data]);
+    const html = liveContent ?? noteQ.data?.content ?? '';
+    return htmlToPlainText(html);
+  }, [liveContent, noteQ.data]);
 
   const extract = useAutoExtract({
     parentKind: 'note',
@@ -111,7 +119,7 @@ export function NoteScreen() {
   }
 
   return (
-    <main className="mx-auto flex h-full max-w-screen-2xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
+    <main className="mx-auto flex h-full max-w-[1800px] flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <header className="flex items-center justify-between gap-2">
         <Link
           to="/worlds/$worldId"
@@ -178,7 +186,7 @@ export function NoteScreen() {
       <div
         className={`grid min-h-0 flex-1 gap-4 grid-cols-1 ${
           chatPanelOpen
-            ? 'md:grid-cols-[240px_1fr_300px]'
+            ? 'md:grid-cols-[240px_1fr_540px]'
             : 'md:grid-cols-[240px_1fr]'
         }`}
       >
@@ -197,6 +205,7 @@ export function NoteScreen() {
           <NoteEditor
             initialContent={noteQ.data.content}
             onChange={onContentChange}
+            onLiveUpdate={setLiveContent}
             entityHighlights={entityHighlights}
           />
         </div>

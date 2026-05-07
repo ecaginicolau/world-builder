@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { fail, ok } from "../response.js";
 import { nextRankAfter, START_RANK } from "../ranks.js";
+import { plainTextToHtml, syncRichText } from "../richText.js";
 
 const ORIGIN = z.enum(["manual_edit", "upscale"]);
 
@@ -21,7 +22,12 @@ export function registerChaptersWriteTools(
         title: z.string().nullish(),
         first_event_title: z.string().min(1),
         first_event_description: z.string().nullish(),
-        draft: z.string().optional(),
+        draft: z
+          .string()
+          .optional()
+          .describe(
+            "Initial draft text. Plain text (newlines = paragraph breaks) OR Tiptap HTML for rich formatting. Supported tags: <p>, <strong>, <em>, <s>, <code>, <h1>-<h6>, <ul>/<ol>/<li>, <blockquote>, <br>, <hr>. Plain text is auto-wrapped server-side.",
+          ),
         source_note_id: z.string().uuid().nullish(),
       },
     },
@@ -77,7 +83,7 @@ export function registerChaptersWriteTools(
           owner_id: ctx.ownerId,
           rank: START_RANK,
           origin: "draft",
-          text: draft ?? "",
+          text: plainTextToHtml(draft ?? ""),
         })
         .select("id")
         .single();
@@ -106,6 +112,10 @@ export function registerChaptersWriteTools(
           rank: e.chronological_rank,
         })),
       );
+      const evDesc = syncRichText({
+        plain: first_event_description?.trim() || null,
+        html: null,
+      });
       const ev = await ctx.supabase
         .from("events")
         .insert({
@@ -113,7 +123,8 @@ export function registerChaptersWriteTools(
           owner_id: ctx.ownerId,
           title: first_event_title.trim(),
           chronological_rank: chronoRank,
-          description: first_event_description?.trim() || null,
+          description: evDesc.plain,
+          description_html: evDesc.html,
         })
         .select("id, title")
         .single();
@@ -245,10 +256,14 @@ export function registerChaptersWriteTools(
     {
       title: "Append chapter version",
       description:
-        "Append a new chapter_versions row (origin='manual_edit' or 'upscale') and set it as the chapter's final_version_id by default. Use for: agent-driven manual edits, snapshots, or when you have an upscaled text without going through the upscale_chapter intent.",
+        "Append a new chapter_versions row (origin='manual_edit' or 'upscale') and set it as the chapter's final_version_id by default. Use for: agent-driven manual edits, snapshots, or when you have an upscaled text without going through the upscale_chapter intent. `text` may be plain text (newlines = paragraph breaks) or Tiptap-compatible HTML; plain text is auto-wrapped server-side.",
       inputSchema: {
         chapter_id: z.string().uuid(),
-        text: z.string(),
+        text: z
+          .string()
+          .describe(
+            "Chapter text. Plain text (newlines = paragraph breaks) OR Tiptap HTML for rich formatting. Supported tags: <p>, <strong>, <em>, <s>, <code>, <h1>-<h6>, <ul>/<ol>/<li>, <blockquote>, <br>, <hr>. Plain text is auto-wrapped server-side.",
+          ),
         origin: ORIGIN,
         user_prompt: z.string().nullish(),
         parent_version_id: z.string().uuid().nullish(),
@@ -290,7 +305,7 @@ export function registerChaptersWriteTools(
           owner_id: ctx.ownerId,
           rank,
           origin,
-          text,
+          text: plainTextToHtml(text),
           user_prompt: user_prompt ?? null,
           parent_version_id: parent_version_id ?? null,
         })

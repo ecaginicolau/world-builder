@@ -2,9 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { fail, fromSupabase, ok } from "../response.js";
+import { buildPcc } from "../pcc.js";
 
 const SUMMARY_LEVEL = z.enum(["s", "m", "l"]);
-const PCC_LEVEL = z.enum(["raw", "L", "M", "S"]);
 
 export function registerChaptersReadTools(
   server: McpServer,
@@ -186,119 +186,15 @@ export function registerChaptersReadTools(
       inputSchema: { chapter_id: z.string().uuid() },
     },
     async ({ chapter_id }) => {
-      const cRes = await ctx.supabase
-        .from("chapters")
-        .select("id, world_id, part_id, reading_rank")
-        .eq("id", chapter_id)
-        .eq("owner_id", ctx.ownerId)
-        .maybeSingle();
-      if (cRes.error) return fail(cRes.error.message);
-      if (!cRes.data) return fail("Chapter not found");
-
-      const wRes = await ctx.supabase
-        .from("worlds")
-        .select("previous_chapter_context")
-        .eq("id", cRes.data.world_id)
-        .maybeSingle();
-      if (wRes.error) return fail(wRes.error.message);
-      const pccConfig = (wRes.data?.previous_chapter_context ?? []) as Array<
-        "raw" | "L" | "M" | "S"
-      >;
-      if (pccConfig.length === 0) return ok([]);
-
-      // All chapters in the world, with their part to derive global reading order.
-      const chRes = await ctx.supabase
-        .from("chapters")
-        .select(
-          "id, part_id, reading_rank, final_version_id, summary_s, summary_m, summary_l",
-        )
-        .eq("world_id", cRes.data.world_id)
-        .eq("owner_id", ctx.ownerId);
-      if (chRes.error) return fail(chRes.error.message);
-      const partsRes = await ctx.supabase
-        .from("parts")
-        .select("id, book_id, rank")
-        .eq("world_id", cRes.data.world_id)
-        .eq("owner_id", ctx.ownerId);
-      if (partsRes.error) return fail(partsRes.error.message);
-      const booksRes = await ctx.supabase
-        .from("books")
-        .select("id, rank")
-        .eq("world_id", cRes.data.world_id)
-        .eq("owner_id", ctx.ownerId);
-      if (booksRes.error) return fail(booksRes.error.message);
-      const partRank = new Map<string, string>();
-      const partBook = new Map<string, string>();
-      for (const p of (partsRes.data ?? []) as Array<{
-        id: string;
-        book_id: string;
-        rank: string;
-      }>) {
-        partRank.set(p.id, p.rank);
-        partBook.set(p.id, p.book_id);
-      }
-      const bookRank = new Map<string, string>();
-      for (const b of (booksRes.data ?? []) as Array<{
-        id: string;
-        rank: string;
-      }>) {
-        bookRank.set(b.id, b.rank);
-      }
-      const chapters = (chRes.data ?? []) as Array<{
-        id: string;
-        part_id: string;
-        reading_rank: string;
-        final_version_id: string | null;
-        summary_s: string | null;
-        summary_m: string | null;
-        summary_l: string | null;
-      }>;
-      const sorted = chapters.slice().sort((a, b) => {
-        const ba = bookRank.get(partBook.get(a.part_id) ?? "") ?? "";
-        const bb = bookRank.get(partBook.get(b.part_id) ?? "") ?? "";
-        if (ba !== bb) return ba < bb ? -1 : 1;
-        const pa = partRank.get(a.part_id) ?? "";
-        const pb = partRank.get(b.part_id) ?? "";
-        if (pa !== pb) return pa < pb ? -1 : 1;
-        return a.reading_rank < b.reading_rank
-          ? -1
-          : a.reading_rank > b.reading_rank
-            ? 1
-            : 0;
-      });
-      const idx = sorted.findIndex((c) => c.id === chapter_id);
-      if (idx === -1) return ok([]);
-      const priors = sorted.slice(Math.max(0, idx - pccConfig.length), idx);
-      // pccConfig[0] = configuration for chapter immediately before; pccConfig[1] = two before; ...
-      const out: Array<{
-        chapter_id: string;
-        level: "raw" | "L" | "M" | "S";
-        text: string | null;
-      }> = [];
-      for (let i = 0; i < priors.length; i++) {
-        const prior = priors[priors.length - 1 - i];
-        const level = pccConfig[i];
-        let text: string | null = null;
-        if (level === "raw" && prior.final_version_id) {
-          const fvRes = await ctx.supabase
-            .from("chapter_versions")
-            .select("text")
-            .eq("id", prior.final_version_id)
-            .maybeSingle();
-          text = (fvRes.data?.text ?? null) as string | null;
-        } else if (level === "L") {
-          text = prior.summary_l;
-        } else if (level === "M") {
-          text = prior.summary_m;
-        } else if (level === "S") {
-          text = prior.summary_s;
-        }
-        out.push({ chapter_id: prior.id, level, text });
-      }
-      return ok(out);
+      const r = await buildPcc(ctx.supabase, ctx.ownerId, chapter_id);
+      if (!r.ok) return fail(r.error);
+      return ok(
+        r.slots.map((s) => ({
+          chapter_id: s.chapter_id,
+          level: s.level,
+          text: s.text,
+        })),
+      );
     },
   );
-
-  // Re-exports the level enum for completeness; not registered as its own tool.
-  void PCC_LEVEL;
 }

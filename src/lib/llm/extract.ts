@@ -8,7 +8,7 @@ export const entityCandidateSchema = z.object({
   /** LLM's best guess of the entity type by name (e.g. "Character", "Location"). */
   type: z.string().min(1).max(80),
   /** If the LLM matched the candidate to a known entity, the matched id. */
-  matchedEntityId: z.string().uuid().optional(),
+  matchedEntityId: z.string().uuid().nullish(),
 });
 export type EntityCandidate = z.infer<typeof entityCandidateSchema>;
 

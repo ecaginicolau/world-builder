@@ -50,6 +50,38 @@ export function registerWorldsTools(server: McpServer, ctx: ServerContext) {
   );
 
   server.registerTool(
+    "update_world_memory",
+    {
+      title: "Update world memory",
+      description:
+        "Replace the world's `world_memory` (free-form lore / canon block fed to the writing guide and prompts). Pass the full new text — this is a full overwrite, not a patch.",
+      inputSchema: {
+        world_id: z.string().uuid(),
+        world_memory: z.string(),
+      },
+    },
+    async ({ world_id, world_memory }) => {
+      const r = await ctx.supabase
+        .from("worlds")
+        .update({ world_memory })
+        .eq("id", world_id)
+        .eq("owner_id", ctx.ownerId)
+        .select(WORLD_COLS)
+        .maybeSingle();
+      if (r.error) return fail(r.error.message);
+      if (!r.data) return fail("World not found or not owned by this user");
+      await ctx.logAction({
+        worldId: world_id,
+        actionKind: "update_world_memory",
+        targetKind: "world",
+        targetId: world_id,
+        payload: { length: world_memory.length },
+      });
+      return ok(r.data);
+    },
+  );
+
+  server.registerTool(
     "get_writing_guide",
     {
       title: "Get writing guide",

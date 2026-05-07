@@ -11,6 +11,8 @@ import {
   useCreateChapterVersion,
   useUpdateChapterVersionText,
 } from '@/lib/queries/chapterVersions';
+import { useBooks } from '@/lib/queries/books';
+import { usePartsByWorld } from '@/lib/queries/parts';
 import { useWorld } from '@/lib/queries/worlds';
 import { useEntities } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
@@ -20,6 +22,7 @@ import { useChapterEvents, useChapterEventsByWorld } from '@/lib/queries/chapter
 import { useUserSettings } from '@/lib/queries/userSettings';
 import { useSession } from '@/features/auth/session';
 import { htmlToPlainText } from '@/lib/html';
+import { countWords, formatWordCount } from '@/lib/wordCount';
 import { resolveColor } from '@/lib/entityColors';
 import {
   CURRENT_RANK_SENTINEL,
@@ -59,6 +62,8 @@ export function ChapterScreen() {
   const chapterQ = useChapter(chapterId);
   const versionsQ = useChapterVersions(chapterId);
   const worldChaptersQ = useChaptersByWorld(worldId);
+  const booksQ = useBooks(worldId);
+  const partsQ = usePartsByWorld(worldId);
   const worldQ = useWorld(worldId);
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
@@ -95,6 +100,31 @@ export function ChapterScreen() {
     [versions, selectedVersionId, finalVersion],
   );
 
+  // Reading-order list of chapters across the whole world (book.rank → part.rank → reading_rank).
+  const orderedChapters = useMemo(() => {
+    const chapters = worldChaptersQ.data ?? [];
+    const partsById = new Map((partsQ.data ?? []).map((p) => [p.id, p]));
+    const bookRankById = new Map((booksQ.data ?? []).map((b) => [b.id, b.rank]));
+    return [...chapters].sort((a, b) => {
+      const pa = partsById.get(a.part_id);
+      const pb = partsById.get(b.part_id);
+      const baRank = pa ? bookRankById.get(pa.book_id) ?? '' : '';
+      const bbRank = pb ? bookRankById.get(pb.book_id) ?? '' : '';
+      if (baRank !== bbRank) return baRank < bbRank ? -1 : 1;
+      const paRank = pa?.rank ?? '';
+      const pbRank = pb?.rank ?? '';
+      if (paRank !== pbRank) return paRank < pbRank ? -1 : 1;
+      if (a.reading_rank !== b.reading_rank) return a.reading_rank < b.reading_rank ? -1 : 1;
+      return 0;
+    });
+  }, [worldChaptersQ.data, partsQ.data, booksQ.data]);
+  const currentIndex = orderedChapters.findIndex((c) => c.id === chapterId);
+  const prevChapter = currentIndex > 0 ? orderedChapters[currentIndex - 1] : null;
+  const nextChapter =
+    currentIndex >= 0 && currentIndex < orderedChapters.length - 1
+      ? orderedChapters[currentIndex + 1]
+      : null;
+
   // Derived chronological rank for every chapter in the world (= min linked event chrono).
   const chapterChrono = useMemo(
     () => buildChapterChronoMap(allChapterEventsQ.data ?? [], eventsQ.data ?? []),
@@ -118,10 +148,23 @@ export function ChapterScreen() {
 
   const currentTitle = titleDraft ?? chapterQ.data?.title ?? '';
 
+  // Live HTML pushed by the editor on every keystroke. Used by useAutoExtract
+  // and the chat panel so the debounce starts ticking from the last keystroke,
+  // not from the next save round-trip (which lags ~600ms behind).
+  const [liveText, setLiveText] = useState<string | null>(null);
+  useEffect(() => {
+    setLiveText(null);
+  }, [selectedVersion?.id]);
+
   const selectedTextForLlm = useMemo(() => {
-    if (!selectedVersion) return '';
-    return htmlToPlainText(selectedVersion.text);
-  }, [selectedVersion]);
+    const html = liveText ?? selectedVersion?.text ?? '';
+    return htmlToPlainText(html);
+  }, [liveText, selectedVersion]);
+
+  const wordCount = useMemo(
+    () => (finalVersion ? countWords(finalVersion.text) : 0),
+    [finalVersion],
+  );
 
   const extract = useAutoExtract({
     parentKind: 'chapter',
@@ -433,17 +476,64 @@ export function ChapterScreen() {
   }
 
   return (
-    <main className="mx-auto flex h-full max-w-screen-2xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
+    <main className="mx-auto flex h-full max-w-[1800px] flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <header className="flex items-center justify-between gap-2">
-        <Link
-          to="/worlds/$worldId/books"
-          params={{ worldId }}
-          className="text-sm text-fg-muted hover:text-fg"
-          data-testid="back-to-books"
-        >
-          ← Books
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/worlds/$worldId/books"
+            params={{ worldId }}
+            className="text-sm text-fg-muted hover:text-fg"
+            data-testid="back-to-books"
+          >
+            ← Books
+          </Link>
+          <div className="flex items-center gap-1">
+            {prevChapter ? (
+              <Link
+                to="/worlds/$worldId/chapters/$chapterId"
+                params={{ worldId, chapterId: prevChapter.id }}
+                className="bg-bg-subtle px-2 py-1 text-sm hover:bg-bg-panel"
+                data-testid="prev-chapter"
+                title={prevChapter.title ?? 'Untitled chapter'}
+              >
+                ← Prev
+              </Link>
+            ) : (
+              <span
+                className="cursor-not-allowed bg-bg-subtle px-2 py-1 text-sm opacity-40"
+                data-testid="prev-chapter-disabled"
+              >
+                ← Prev
+              </span>
+            )}
+            {nextChapter ? (
+              <Link
+                to="/worlds/$worldId/chapters/$chapterId"
+                params={{ worldId, chapterId: nextChapter.id }}
+                className="bg-bg-subtle px-2 py-1 text-sm hover:bg-bg-panel"
+                data-testid="next-chapter"
+                title={nextChapter.title ?? 'Untitled chapter'}
+              >
+                Next →
+              </Link>
+            ) : (
+              <span
+                className="cursor-not-allowed bg-bg-subtle px-2 py-1 text-sm opacity-40"
+                data-testid="next-chapter-disabled"
+              >
+                Next →
+              </span>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
+          <span
+            className="text-xs text-fg-muted"
+            data-testid="chapter-word-count"
+            title="Word count of the final version"
+          >
+            {formatWordCount(wordCount)}
+          </span>
           {noEventsLinked ? (
             <span
               className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-mono uppercase text-amber-300"
@@ -514,7 +604,7 @@ export function ChapterScreen() {
         data-testid="chapter-title"
       />
 
-      <div className="grid min-h-0 flex-1 gap-4 grid-cols-1 md:grid-cols-[260px_1fr_320px]">
+      <div className="grid min-h-0 flex-1 gap-4 grid-cols-1 md:grid-cols-[260px_1fr_540px]">
         <aside className="order-2 flex min-h-0 flex-col gap-4 overflow-y-auto md:order-1">
           <EventsCoveredPanel worldId={worldId} chapterId={chapterId} />
           <LinkedEntitiesPanel worldId={worldId} source={linkSource} />
@@ -533,6 +623,7 @@ export function ChapterScreen() {
             key={selectedVersion.id}
             initialContent={selectedVersion.text}
             onChange={onEditorDebouncedChange}
+            onLiveUpdate={setLiveText}
             entityHighlights={entityHighlights}
             readOnly={isPublished}
           />

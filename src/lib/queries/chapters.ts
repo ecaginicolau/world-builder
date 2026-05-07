@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { nextRankAfter, START_RANK } from '@/lib/ranks';
 import type { Chapter } from '@/features/chapters/types';
 import { chapterVersionsKeys } from './chapterVersions';
+import { chapterWordCountsKeys } from './chapterWordCounts';
 
 export const chaptersKeys = {
   byPart: (partId: string) => ['chapters', 'byPart', partId] as const,
@@ -165,6 +166,7 @@ export function useCreateChapter() {
       void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(c.part_id) });
       void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(c.world_id) });
       void qc.invalidateQueries({ queryKey: chapterVersionsKeys.byChapter(c.id) });
+      void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(c.world_id) });
       void qc.invalidateQueries({ queryKey: ['events', 'byWorld', c.world_id] });
       void qc.invalidateQueries({ queryKey: ['chapter_events', 'byChapter', c.id] });
       void qc.invalidateQueries({ queryKey: ['chapter_events', 'byWorld', c.world_id] });
@@ -219,6 +221,7 @@ export function useUpdateChapter() {
       qc.setQueryData(chaptersKeys.detail(c.id), c);
       void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(c.part_id) });
       void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(c.world_id) });
+      void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(c.world_id) });
     },
   });
 }
@@ -238,6 +241,7 @@ export function useDeleteChapter() {
     onSuccess: ({ partId, worldId }) => {
       void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(partId) });
       void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(worldId) });
+      void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(worldId) });
     },
   });
 }

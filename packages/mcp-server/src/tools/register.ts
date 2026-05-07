@@ -13,6 +13,7 @@ import { registerEventsWriteTools } from "./eventsWrite.js";
 import { registerChaptersWriteTools } from "./chaptersWrite.js";
 import { registerBooksPartsWriteTools } from "./booksPartsWrite.js";
 import { registerLinksWriteTools } from "./linksWrite.js";
+import { registerIntentsTools } from "./intents.js";
 
 export function registerAllTools(server: McpServer, ctx: ServerContext) {
   // Reads
@@ -32,6 +33,6 @@ export function registerAllTools(server: McpServer, ctx: ServerContext) {
   registerBooksPartsWriteTools(server, ctx);
   registerLinksWriteTools(server, ctx);
 
-  // Intents — coming next.
-  // registerIntentsTools(server, ctx);
+  // Intents — LLM-driven (auto_extract, propose_canon, upscale, summarize).
+  registerIntentsTools(server, ctx);
 }

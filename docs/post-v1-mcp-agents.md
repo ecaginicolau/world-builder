@@ -1,52 +1,60 @@
 # Post-v1 — MCP agents (slice 2b)
 
-**Document vivant.** Brainstorm session 2026-05-02 PM. Spec figée, à démarrer après slice 2a livrée. Slice essentiellement documentaire + un peu de tuning serveur (pas de migration, peu de code app).
+**Document vivant.** Brainstorm session 2026-05-02 PM, recadré 2026-05-02 nuit++ pour cibler **Claude Code** (et non Claude Desktop) comme runtime principal après que la config `claude_desktop_config.json` se soit avérée pénible côté Windows. Spec figée, à démarrer après slice 2a.2 livrée. Slice essentiellement documentaire + un peu de tuning serveur (pas de migration, peu de code app).
 
 ## Contexte
 
-Slice 2a expose World Builder en serveur MCP. 2b = construire les agents qui s'en servent. Scope strict : **2b.1 (Drafting Agent basique) + 2b.2 (rôles spécialisés via Projects Claude Desktop)**. Le reste (agent custom SDK, multi-agent orchestration) = slice 3+ ou plus tard.
+Slice 2a.1 a wiré le MCP server dans **Claude Code** via `.mcp.json` project-scoped (les `mcp__world-builder__*` tools sont accessibles côté assistant pendant les sessions de dev). 2b = construire les **personas** d'agents qui s'en servent.
 
-User a Claude Pro Max → Projects disponibles, on en profite.
+Scope strict : **2b.1 (Drafting Agent basique) + 2b.2 (4 rôles spécialisés via slash commands Claude Code)**. Le reste (agent custom SDK, multi-agent orchestration) = slice 3+ ou plus tard.
 
 ## Macro-décisions tranchées
 
 1. **2 niveaux de "multi-LLM" déjà couverts dans le scope 2b.1+2 sans effort supplémentaire** :
-   - **Pilote** : Claude Sonnet 4.6 ou Opus 4.7 sélectionnable per-conversation dans Claude Desktop.
+   - **Pilote** : Claude Sonnet 4.6 / Opus 4.7 sélectionnable per-session dans Claude Code (commande `/model` ou `--model`).
    - **Tools intents** : extract / proposals / upscale / summaries respectent les settings local-LLM (slice 1) ou cloud, configurés per-task. Tu peux avoir Opus qui pilote, Qwen3 local qui drafte les upscales, Opus cloud qui fait les propose-canon.
    - Le multi-agent autonome multi-LLM (= plusieurs agents en parallèle, chacun avec son cerveau) reste pour 2b.3+.
 2. **3 system prompts Drafting** documentés (V1 Collaborateur / V2 Rédacteur / V3 Gardien du Canon). **Default = V2** d'après préférence user, les 3 livrés pour expérimentation.
-3. **4 rôles via Projects Claude Desktop** : Drafter, Continuity Checker, World Expander, Editor. Chacun = un Project Claude Desktop avec son system prompt + le MCP server connecté.
+3. **4 rôles via slash commands Claude Code** : Drafter, Continuity Checker, World Expander, Editor. Chacun = un fichier `.claude/commands/<role>.md` qu'on tape (`/drafter`, `/continuity`, etc.) en début de session pour appliquer la persona.
 4. **Pas de code app structurel**. Slice principalement rédactionnelle + setup. Le seul code = tuning itératif de `get_writing_guide` côté MCP server (slice 2a) en fonction de comment les agents le consomment.
-5. **Distribution des system prompts = repo**. `docs/agents/*.md` versionnés. Permet de re-générer les Projects Claude Desktop si on les perd, et de partager / itérer.
+5. **Distribution des system prompts = repo**. `.claude/commands/*.md` versionnés (project-scoped → partagés via git pour qui clone). `docs/agents/*.md` pour les 3 variantes Drafting V1/V2/V3 standalone (utilisables si on veut bypass un slash command et coller direct).
+6. **Claude Desktop reste possible mais non-default**. Pour qui veut une vraie UI chat (et a réussi à configurer `claude_desktop_config.json` ☠), on documente comment ré-utiliser les mêmes system prompts en Claude Desktop Projects. Voie alternative dans `docs/agents/setup-claude-desktop.md` (court, 1 page).
 
 ## Structure de la slice
 
-3 docs livrables + 1 chantier tuning :
+3 docs livrables + 4 slash commands + 1 chantier tuning :
 
 ### 1. `docs/agents/system-prompts.md`
 
-Recueil des system prompts prêts à copier-coller. 3 Drafting (V1/V2/V3) + 4 rôles (Drafter/Continuity/World Expander/Editor). Chacun structuré en : Boot sequence → Approach → Mandatory rules → Format. Cf. § "System prompts" ci-dessous.
+Recueil des system prompts prêts à copier-coller, indépendants du runtime (Claude Code slash command, Claude Desktop Project, ou n'importe quel client MCP). 3 Drafting (V1/V2/V3) + 4 rôles (Drafter/Continuity/World Expander/Editor). Chacun structuré en : Boot sequence → Approach → Mandatory rules → Format. Cf. § "System prompts" ci-dessous.
 
-### 2. `docs/agents/setup-claude-desktop.md`
+### 2. `.claude/commands/{drafter,continuity,world-expander,editor}.md`
 
-Walkthrough pas-à-pas :
-- Installer le MCP server (`npm run build:mcp` ou `npx -y world-builder-mcp` une fois publié)
-- Éditer `claude_desktop_config.json` (chemin différent par OS) avec le bloc `mcpServers.world-builder`
-- Vérifier les variables d'env (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)
-- Tester la connexion via une conversation Desktop ("Liste mes worlds")
-- Créer les 4 Projects, coller les system prompts, choisir le model par défaut (Sonnet vs Opus selon rôle)
-- Troubleshoot fréquent (MCP server ne démarre pas, tools invisibles, RLS errors)
+Les 4 slash commands wirées dans Claude Code. Chaque fichier = système prompt du rôle correspondant + une ligne d'invitation finale. Project-scoped donc commités dans le repo. Tape `/drafter` au début d'une session et c'est wiré.
 
-### 3. `docs/agents/recipes.md`
+### 3. `docs/agents/setup.md`
+
+Walkthrough très court (la config principale est déjà en place via slice 2a.1) :
+
+- Vérifier que `.mcp.json` est rempli (cf. `docs/demo/mcp-server-setup.md`)
+- Restart Claude Code → accept le project-scoped MCP prompt
+- Test : taper `/drafter` puis "list my worlds" → l'agent devrait appeler `mcp__world-builder__list_worlds` et lister
+- Sub-section "Alternative Claude Desktop" : pointer vers `setup-claude-desktop.md`
+
+### 4. `docs/agents/setup-claude-desktop.md` *(alternative, optionnel)*
+
+Voie alternative pour qui veut Claude Desktop. Walkthrough : path JSON par OS, env vars, créer 4 Projects, coller system prompts. Documenté pour cas où le user veut une UI chat dédiée (vs terminal Claude Code), mais pas la voie recommandée.
+
+### 5. `docs/agents/recipes.md`
 
 Recettes opérationnelles, format "given-when-then" :
-- **Recipe A** : Lancer un draft de chapter from scratch (ouvrir Project "Drafter" → décrire la scène → laisser drafter → reviewer)
-- **Recipe B** : Audit de cohérence sur un chapter existant (Project "Continuity Checker" → "audit chapter X" → lire le rapport → décider quoi corriger)
-- **Recipe C** : Étoffer un personnage (Project "World Expander" → "fill out Iria's bio and tendencies" → review propositions)
-- **Recipe D** : Polish final avant publish (Project "Editor" → "polish chapter X for publication" → review manual_edits → toggle published)
-- **Recipe E** (avancée) : Cascade Drafter → Editor (deux conversations consécutives, pas en parallèle, dans le scope 2b)
+- **Recipe A** : Draft from scratch (`/drafter` → "World X. New chapter where [...]")
+- **Recipe B** : Audit cohérence (`/continuity` → "audit chapter X")
+- **Recipe C** : Étoffer un personnage (`/world-expander` → "fill out Iria's bio")
+- **Recipe D** : Polish final (`/editor` → "polish chapter X for publication")
+- **Recipe E** (avancée) : Cascade Drafter → Editor (deux sessions ou deux slashes consécutifs dans la même session)
 
-### 4. Tuning itératif de `get_writing_guide`
+### 6. Tuning itératif de `get_writing_guide`
 
 Pas un livrable séparé, mais un chantier court côté MCP server. Cycle :
 - Lancer un agent V2 sur une vraie tâche
@@ -146,11 +154,11 @@ For prose, you draft once then prefer targeted `manual_edit` over `upscale` (the
 
 ## System prompts — 4 Roles (2b.2)
 
-Pour chaque rôle, le system prompt = base courte + heading "Approach" + "Tools you'll use most". Le contenu détaillé sera rédigé en lockstep avec le tuning de `get_writing_guide`. Sketch :
+Pour chaque rôle, le system prompt = base courte + heading "Approach" + "Tools you'll use most". Le contenu détaillé sera rédigé en lockstep avec le tuning de `get_writing_guide`. Distribution = `.claude/commands/<role>.md` (project-scoped, commité). Sketch :
 
-### Role 1 — Drafter
+### Role 1 — Drafter (`/drafter`)
 
-Default model : Sonnet 4.6 (rapide, économique sur les drafts).
+Default model recommandé : Sonnet 4.6 (rapide, économique sur les drafts).
 
 ```
 You are the Drafter agent for World Builder. Your job: write new chapter drafts from creative briefs.
@@ -162,11 +170,13 @@ Use the V2 "Rédacteur" approach. Boot with `get_writing_guide`. Default to acti
 - Reads: `get_world`, `get_writing_guide`, `list_notes`, `get_chapter` (prior chapters), `get_pcc`, `list_entities`, `get_entity`
 - Writes: `create_note`, `create_chapter` (with first_event!), `append_chapter_version`, `link_event_to_chapter`, `link_entity_to_event`
 - Intents: `auto_extract_from_note`, `upscale_chapter` (aggressively)
+
+Ready. Tell me which world and what to draft.
 ```
 
-### Role 2 — Continuity Checker
+### Role 2 — Continuity Checker (`/continuity`)
 
-Default model : Opus 4.7 (raisonnement complexe sur les inconsistencies).
+Default model recommandé : Opus 4.7 (raisonnement complexe sur les inconsistencies).
 
 ```
 You are the Continuity Checker agent for World Builder. Your job: audit existing chapters and entity states for coherence violations.
@@ -178,11 +188,13 @@ Use the V3 "Gardien du Canon" approach. Mostly read-only. Surface findings, prop
 - Reads (heavy): `list_chapters`, `get_chapter`, `list_events`, `get_event`, `list_entity_versions`, `get_entity_state_at_rank` (CRUCIAL), `get_pcc`
 - Writes (rare, only after user approval): `set_entity_field`, `update_event`, `link_*`, `unlink_*`
 - Intents: rarely, possibly `propose_canon_from_chapter` for re-analysis with cleanup intent
+
+Ready. Tell me which chapter or world segment to audit.
 ```
 
-### Role 3 — World Expander
+### Role 3 — World Expander (`/world-expander`)
 
-Default model : Sonnet 4.6.
+Default model recommandé : Sonnet 4.6.
 
 ```
 You are the World Expander agent. Your job: enrich entities and lore through targeted expansions of details, backstory, and connections.
@@ -194,11 +206,13 @@ Read everything about the target entity / faction / location. Brainstorm 5-10 en
 - Reads: `get_entity`, `list_entity_versions`, `list_events` (where entity is participant), `list_chapters` (where entity appears)
 - Writes: `set_entity_field` (heavy), `create_event` (when the enrichment is event-anchored), `link_entity_to_event`
 - Intents: rarely
+
+Ready. Tell me which entity or area of the world to expand.
 ```
 
-### Role 4 — Editor
+### Role 4 — Editor (`/editor`)
 
-Default model : Opus 4.7 (qualité de prose).
+Default model recommandé : Opus 4.7 (qualité de prose).
 
 ```
 You are the Editor agent. Your job: polish a near-final chapter for publication.
@@ -210,6 +224,8 @@ Read the chapter, surface 5-15 prose issues (rhythm, repetition, weak verbs, dia
 - Reads: `get_chapter` (with text), `get_pcc`, `get_chapter_summary` (existing levels), `list_entities` (for resolution)
 - Writes: `append_chapter_version` with origin='manual_edit' (heavy)
 - Intents: `summarize_chapter` (s, m, l before publish), occasionally `upscale_chapter` for stuck passages
+
+Ready. Tell me which chapter to polish.
 ```
 
 ## Recipes — squelette
@@ -218,11 +234,11 @@ Read the chapter, surface 5-15 prose issues (rhythm, repetition, weak verbs, dia
 
 ```
 Recipe A — Draft a new chapter from scratch
-1. Open Claude Desktop, switch to Project "Drafter"
+1. In Claude Code, type `/drafter`
 2. Prompt: "World 'Ashen Crowns'. New chapter where [scene description]"
 3. Agent reads world, asks 1-2 creative questions
 4. Answer briefly, agent drafts a note + extracts + creates chapter + drafts prose
-5. Review the draft in Claude, validate or request revisions
+5. Review the draft in Claude Code, validate or request revisions
 6. Switch to the app — chapter is there, refine manually if needed
 ```
 
@@ -240,18 +256,19 @@ Au fil du tuning, on enrichit `get_writing_guide` ou on ajoute des "guardrails" 
 ## Tasks
 
 1. **Rédiger `docs/agents/system-prompts.md`** : 3 Drafting + 4 rôles, polish final.
-2. **Rédiger `docs/agents/setup-claude-desktop.md`** : walkthrough installation + Projects.
-3. **Rédiger `docs/agents/recipes.md`** : 5 recettes A→E.
-4. **Créer 4 Projects côté Claude Desktop** : 1 par rôle, system prompt collé, MCP server attaché.
-5. **Smoke test agent V2 (Drafter)** : un round complet "draft new chapter" sur le Smoke Test World, observer les frottements.
-6. **Tuner `get_writing_guide`** : 3-5 itérations courtes basées sur les observations du smoke test.
-7. **Smoke test 3 autres rôles** : un round chacun (Continuity, World Expander, Editor) pour valider qu'ils tiennent leur ligne.
-8. **Demo guide post-slice** : `docs/demo/agents-getting-started.md` user-facing, 2-3 walkthroughs avec screenshots.
+2. **Créer les 4 fichiers `.claude/commands/{drafter,continuity,world-expander,editor}.md`** avec les system prompts compactés.
+3. **Rédiger `docs/agents/setup.md`** : walkthrough très court Claude Code (.mcp.json déjà en place, juste tester un slash command).
+4. **Rédiger `docs/agents/setup-claude-desktop.md`** : alternative Claude Desktop, optionnelle.
+5. **Rédiger `docs/agents/recipes.md`** : 5 recettes A→E format Claude Code slash commands.
+6. **Smoke test agent V2 (Drafter) via `/drafter`** : un round complet "draft new chapter" sur le Smoke Test World, observer les frottements.
+7. **Tuner `get_writing_guide`** : 3-5 itérations courtes basées sur les observations du smoke test.
+8. **Smoke test 3 autres rôles** : un round chacun (`/continuity`, `/world-expander`, `/editor`) pour valider qu'ils tiennent leur ligne.
+9. **Demo guide post-slice** : `docs/demo/agents-getting-started.md` user-facing, 2-3 walkthroughs avec screenshots.
 
 ## Critères de validation
 
-- Les 3 docs (`system-prompts.md`, `setup-claude-desktop.md`, `recipes.md`) sont rédigés, lisibles, cohérents.
-- 4 Projects Claude Desktop créés et fonctionnels (test : ouvrir chacun, dire "list my worlds", obtenir une réponse propre).
+- Les 4 docs (`system-prompts.md`, `setup.md`, `setup-claude-desktop.md`, `recipes.md`) sont rédigés, lisibles, cohérents.
+- Les 4 slash commands `.claude/commands/*.md` sont commités et fonctionnels (test : ouvrir Claude Code, taper `/drafter`, voir le boot message + l'agent appeler `list_worlds`).
 - Smoke test Drafter V2 sur le Smoke Test World : un chapter complet créé end-to-end (note → chapter → upscale → propose-canon → entity diffs apply), sans intervention humaine au-delà des questions créatives.
 - Smoke test Continuity Checker : un audit produit une liste de contradictions ou un "all clear" justifié.
 - `agent_actions` log les writes attendus, `runs` log les intents attendus.
@@ -259,8 +276,9 @@ Au fil du tuning, on enrichit `get_writing_guide` ou on ajoute des "guardrails" 
 
 ## Pre-requisites
 
-- **Slice 2a livrée** (le MCP server existe et expose les tools).
-- **Slice 1 livrée** (sinon les intents sont cloud-only, ce qui marche mais coûte plus cher en usage soutenu).
+- **Slice 2a.1 livrée** ✓ (le MCP server existe, est wiré dans Claude Code via `.mcp.json`).
+- **Slice 2a.2 livrée** (sinon les 3 intents Drafting `auto_extract_from_note`, `upscale_chapter`, `summarize_chapter` ne sont pas dispos côté MCP — l'agent peut quand même bosser via les writes purs, mais perd les opérations LLM).
+- **Slice 1 livrée** ✓ (sinon les intents 2a.2 sont cloud-only, ce qui marche mais coûte plus cher en usage soutenu).
 
 ## À noter post-slice (futur 2b.3+)
 
