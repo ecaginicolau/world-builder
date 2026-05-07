@@ -6,6 +6,7 @@ import { useChaptersByPart, useCreateChapter, useDeleteChapter, useUpdateChapter
 import { useSession } from '@/features/auth/session';
 import { useConfirm } from '@/lib/useConfirm';
 import { rankForMoveDown, rankForMoveUp } from '@/features/timeline/timelineItems';
+import { SharePanel } from './SharePanel';
 import type { Part } from './types';
 
 export function BookDetailScreen() {
@@ -99,6 +100,8 @@ export function BookDetailScreen() {
           ))}
         </div>
       ) : null}
+
+      <SharePanel worldId={worldId} bookId={bookId} />
     </main>
   );
 }

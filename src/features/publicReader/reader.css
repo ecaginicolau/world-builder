@@ -1,0 +1,304 @@
+/* Public reader theme — scoped to .reader-shell */
+
+.reader-shell {
+  --reader-bg: #0e0e10;
+  --reader-bg-panel: #18181b;
+  --reader-fg: #e7e5e4;
+  --reader-fg-muted: #a1a1aa;
+  --reader-border: #2a2a30;
+  --reader-accent: #7c5cff;
+  --reader-up: #22c55e;
+  --reader-down: #ef4444;
+  --reader-comment: #eab308;
+
+  background: var(--reader-bg);
+  color: var(--reader-fg);
+  min-height: 100vh;
+  font-family: 'Iowan Old Style', 'Charter', 'Georgia', serif;
+}
+
+.reader-shell.reader-light {
+  --reader-bg: #faf9f6;
+  --reader-bg-panel: #ffffff;
+  --reader-fg: #1a1a1a;
+  --reader-fg-muted: #5a5a5a;
+  --reader-border: #d8d4cb;
+  --reader-accent: #5b3df0;
+  --reader-up: #15803d;
+  --reader-down: #b91c1c;
+  --reader-comment: #a16207;
+}
+
+.reader-shell .reader-prose {
+  max-width: 38rem;
+  margin: 0 auto;
+  line-height: 1.7;
+  font-size: 1.125rem;
+}
+
+.reader-shell .reader-prose p {
+  margin: 0 0 1em;
+}
+
+.reader-shell .reader-prose h1,
+.reader-shell .reader-prose h2,
+.reader-shell .reader-prose h3 {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-weight: 600;
+  margin: 1.5em 0 0.5em;
+}
+
+.reader-shell .reader-prose blockquote {
+  border-left: 3px solid var(--reader-border);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: var(--reader-fg-muted);
+  font-style: italic;
+}
+
+.reader-shell .reader-prose em { font-style: italic; }
+.reader-shell .reader-prose strong { font-weight: 600; }
+.reader-shell .reader-prose ul,
+.reader-shell .reader-prose ol {
+  margin: 0 0 1em 1.5em;
+}
+.reader-shell .reader-prose li { margin: 0.25em 0; }
+
+.reader-shell .reader-link {
+  color: var(--reader-accent);
+  text-decoration: underline;
+}
+
+.reader-shell mark.reader-annotation {
+  padding: 0 1px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.reader-shell mark.reader-annotation[data-kind='up'] {
+  background: color-mix(in srgb, var(--reader-up) 22%, transparent);
+  border-bottom: 2px solid var(--reader-up);
+}
+.reader-shell mark.reader-annotation[data-kind='down'] {
+  background: color-mix(in srgb, var(--reader-down) 22%, transparent);
+  border-bottom: 2px solid var(--reader-down);
+}
+.reader-shell mark.reader-annotation[data-kind='comment'] {
+  background: color-mix(in srgb, var(--reader-comment) 22%, transparent);
+  border-bottom: 2px solid var(--reader-comment);
+}
+
+.reader-shell .reader-toolbar {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--reader-bg-panel);
+  border: 1px solid var(--reader-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.reader-shell .reader-toolbar button {
+  padding: 6px 10px;
+  font-size: 1rem;
+  background: transparent;
+  border: none;
+  color: var(--reader-fg);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.reader-shell .reader-toolbar button:hover {
+  background: color-mix(in srgb, var(--reader-fg) 10%, transparent);
+}
+
+.reader-shell .reader-comment-popover {
+  position: fixed;
+  z-index: 51;
+  width: 320px;
+  background: var(--reader-bg-panel);
+  border: 1px solid var(--reader-border);
+  border-radius: 6px;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.reader-shell .reader-comment-popover textarea {
+  width: 100%;
+  background: var(--reader-bg);
+  color: var(--reader-fg);
+  border: 1px solid var(--reader-border);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.reader-shell .reader-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.reader-shell .reader-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--reader-bg-panel);
+  border: 1px solid var(--reader-border);
+  border-radius: 8px;
+  padding: 20px;
+}
+.reader-shell .reader-modal h2 {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.reader-shell .reader-modal input,
+.reader-shell .reader-modal textarea {
+  width: 100%;
+  background: var(--reader-bg);
+  color: var(--reader-fg);
+  border: 1px solid var(--reader-border);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: inherit;
+}
+
+.reader-shell .reader-btn {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.9rem;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--reader-border);
+  color: var(--reader-fg);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.reader-shell .reader-btn:hover {
+  background: color-mix(in srgb, var(--reader-fg) 8%, transparent);
+}
+.reader-shell .reader-btn-primary {
+  background: var(--reader-accent);
+  color: #fff;
+  border-color: var(--reader-accent);
+}
+.reader-shell .reader-btn-primary:hover {
+  filter: brightness(1.1);
+}
+.reader-shell .reader-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reader-shell .reader-header {
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--reader-bg) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--reader-border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.875rem;
+  z-index: 30;
+}
+.reader-shell .reader-header .reader-meta {
+  color: var(--reader-fg-muted);
+}
+
+.reader-shell .reader-footer {
+  border-top: 1px solid var(--reader-border);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.85rem;
+  color: var(--reader-fg-muted);
+  margin-top: 32px;
+}
+
+.reader-shell .reader-toc {
+  max-width: 38rem;
+  margin: 0 auto;
+  padding: 24px;
+}
+.reader-shell .reader-toc h1 {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0 0 0.5em;
+}
+.reader-shell .reader-toc h2 {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 1.5em 0 0.5em;
+  color: var(--reader-fg-muted);
+}
+.reader-shell .reader-toc ol {
+  list-style: decimal;
+  margin-left: 1.5em;
+}
+.reader-shell .reader-toc li {
+  margin: 0.4em 0;
+}
+.reader-shell .reader-toc a {
+  color: var(--reader-fg);
+  text-decoration: none;
+}
+.reader-shell .reader-toc a:hover {
+  text-decoration: underline;
+}
+.reader-shell .reader-toc .reader-draft-badge {
+  font-size: 0.7rem;
+  font-family: ui-monospace, monospace;
+  background: var(--reader-comment);
+  color: #000;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.reader-shell .reader-error {
+  max-width: 28rem;
+  margin: 8rem auto;
+  text-align: center;
+  padding: 24px;
+}
+
+.reader-shell .reader-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 70;
+  background: var(--reader-bg-panel);
+  border: 1px solid var(--reader-border);
+  color: var(--reader-fg);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.9rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+@media (max-width: 640px) {
+  .reader-shell .reader-comment-popover {
+    width: calc(100vw - 32px);
+    left: 16px !important;
+    right: 16px;
+  }
+  .reader-shell .reader-toolbar {
+    transform: scale(1.1);
+    transform-origin: bottom center;
+  }
+}

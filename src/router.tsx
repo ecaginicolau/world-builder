@@ -21,6 +21,9 @@ import { EventScreen } from './features/events/EventScreen';
 import { SettingsScreen } from './features/settings/SettingsScreen';
 import { ReaderScreen } from './features/reader/ReaderScreen';
 import { ReaderChapterScreen } from './features/reader/ReaderChapterScreen';
+import { PublicReaderHomeScreen } from './features/publicReader/PublicReaderHomeScreen';
+import { PublicReaderChapterScreen } from './features/publicReader/PublicReaderChapterScreen';
+import { ShareLinkDetailScreen } from './features/chapters/ShareLinkDetailScreen';
 import { RunsScreen } from './features/runs/RunsScreen';
 import { AgentActivityScreen } from './features/agentActivity/AgentActivityScreen';
 import { Login } from './features/auth/Login';
@@ -185,6 +188,25 @@ const agentActivityRoute = createRoute({
   component: AgentActivityScreen,
 });
 
+const publicReaderHomeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/r/$token',
+  component: PublicReaderHomeScreen,
+});
+
+const publicReaderChapterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/r/$token/c/$chapterId',
+  component: PublicReaderChapterScreen,
+});
+
+const shareLinkDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/worlds/$worldId/books/$bookId/shares/$linkId',
+  beforeLoad: requireAuth,
+  component: ShareLinkDetailScreen,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -204,6 +226,9 @@ const routeTree = rootRoute.addChildren([
   readerChapterRoute,
   runsRoute,
   agentActivityRoute,
+  publicReaderHomeRoute,
+  publicReaderChapterRoute,
+  shareLinkDetailRoute,
 ]);
 
 export const router = createRouter({ routeTree });
