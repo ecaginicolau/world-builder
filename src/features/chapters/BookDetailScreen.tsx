@@ -1,6 +1,6 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams, useNavigate } from '@tanstack/react-router';
-import { useBook } from '@/lib/queries/books';
+import { useBook, useUpdateBook } from '@/lib/queries/books';
 import { useCreatePart, useDeletePart, usePartsByBook } from '@/lib/queries/parts';
 import { useChaptersByPart, useChaptersByWorld, useCreateChapter, useDeleteChapter, useUpdateChapter } from '@/lib/queries/chapters';
 import { useChapterWordCountsByWorld } from '@/lib/queries/chapterWordCounts';
@@ -32,9 +32,39 @@ export function BookDetailScreen() {
   }, [wordCounts, worldChaptersQ.data, partsQ.data]);
   const createPart = useCreatePart();
   const deletePart = useDeletePart();
+  const updateBook = useUpdateBook();
   const confirm = useConfirm();
   const [partTitle, setPartTitle] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+
+  useEffect(() => {
+    if (bookQ.data) {
+      setTitleDraft(bookQ.data.title);
+      setDescriptionDraft(bookQ.data.description ?? '');
+    }
+  }, [bookQ.data]);
+
+  function commitTitle() {
+    const book = bookQ.data;
+    if (!book) return;
+    const trimmed = titleDraft.trim();
+    if (trimmed === '' || trimmed === book.title) {
+      setTitleDraft(book.title);
+      return;
+    }
+    updateBook.mutate({ id: book.id, title: trimmed });
+  }
+
+  function commitDescription() {
+    const book = bookQ.data;
+    if (!book) return;
+    const trimmed = descriptionDraft.trim();
+    const current = book.description ?? '';
+    if (trimmed === current) return;
+    updateBook.mutate({ id: book.id, description: trimmed === '' ? null : trimmed });
+  }
 
   async function onExportPdf() {
     const parts = partsQ.data;
@@ -114,10 +144,16 @@ export function BookDetailScreen() {
           ← Books
         </Link>
         <div className="mt-1 flex items-baseline justify-between gap-3">
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {bookQ.data?.title ?? 'Loading…'}
-            </h1>
+          <div className="flex flex-1 items-baseline gap-3">
+            <input
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
+              disabled={!bookQ.data}
+              placeholder={bookQ.data ? '' : 'Loading…'}
+              className="flex-1 bg-transparent text-2xl font-semibold tracking-tight focus:outline-none"
+              data-testid="book-title-input"
+            />
             {bookTotalWords !== null ? (
               <span className="text-sm text-fg-muted" data-testid="book-word-count">
                 {formatWordCount(bookTotalWords)}
@@ -134,6 +170,16 @@ export function BookDetailScreen() {
             {exporting ? 'Generating…' : 'Export PDF'}
           </button>
         </div>
+        <textarea
+          value={descriptionDraft}
+          onChange={(e) => setDescriptionDraft(e.target.value)}
+          onBlur={commitDescription}
+          disabled={!bookQ.data}
+          rows={2}
+          placeholder="Description (optional) — shown on the reader landing page and in the PDF export."
+          className="mt-2 w-full bg-transparent text-sm text-fg-muted focus:outline-none"
+          data-testid="book-description-input"
+        />
       </header>
 
       <form onSubmit={onAddPart} className="flex gap-2" data-testid="create-part-form">
