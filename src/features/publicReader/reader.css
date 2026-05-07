@@ -121,6 +121,13 @@
   padding: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
+.reader-shell input,
+.reader-shell textarea {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+
 .reader-shell .reader-comment-popover textarea {
   width: 100%;
   background: var(--reader-bg);
