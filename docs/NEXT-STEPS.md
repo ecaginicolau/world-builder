@@ -2,6 +2,64 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-07, slice public-reader — partage de book + annotations livré, en attente de validation live)
+
+**Slice "public reader" (post-v1, ergonomie auteur ↔ lecteurs externes) livrée côté code. V016 appliquée. Build + typecheck + lint 0 erreur + 137 Vitest ✓ + 6 Playwright ✓ + prod build ✓.**
+
+Voir **[docs/demo/public-reader.md](./demo/public-reader.md)** pour le walkthrough complet (auteur create link → reader incognito → annoter → auteur voir feedback).
+
+### Migration V016 (appliquée)
+
+3 nouvelles tables :
+- `share_links` (id, owner_id, world_id, book_id, token unique 32-char, label, active, allow_comments, include_drafts, expires_at, created_at). RLS owner full-access.
+- `reader_sessions` (id, share_link_id, reader_local_id, name, first/last_seen_at, unique(share_link_id, reader_local_id)). RLS owner-read via join.
+- `reader_annotations` (id, share_link_id, reader_session_id, chapter_id, kind in ('up','down','comment'), selected_text, before_ctx, after_ctx, comment_body, created_at). RLS owner-read + owner-delete via join.
+
+### Edge function `public-reader` (à déployer par user)
+
+`supabase/functions/public-reader/index.ts` — service-role, no JWT verify. 5 actions : `resolve_link`, `register_session`, `get_chapter`, `post_annotation`, `delete_my_annotation`. Validation token+active+expiry à chaque appel. Rate limit 60 annotations/h/session. Cross-book guard sur les annotations. Visibilité chapter respecte le flag `include_drafts` du link.
+
+À déployer via `supabase functions deploy public-reader --no-verify-jwt`.
+
+### Livré
+
+- **Reader app autonome** (`/r/$token`, `/r/$token/c/$chapterId`) — pas d'auth requise, RootLayout fait l'exemption pour les paths `/r/*`. Shell isolé (`reader.css` scoped sur `.reader-shell`), theme dark/light persistant, modal d'identité (name max 60 chars, localStorage `reader:identity:<token>`).
+- **Selection toolbar** (`SelectionToolbar.tsx`) — apparaît sur `selectionchange` debounced 60ms, positionnée sous la sélection (au-dessus si pas la place), 3 boutons 👍/👎/💬. Comment popover sur desktop, modal full-screen sur mobile <640px.
+- **Anchoring** (`anchorAnnotations.ts` + `renderAnnotatedHtml.ts`, pure & testés) — match `before_ctx + selected_text + after_ctx` puis fallback first-occurrence du `selected_text`. Annotations orphelines (texte introuvable) listées en sidebar côté auteur, pas highlightées inline.
+- **Author UI** :
+  - `SharePanel` ajouté en bas de `BookDetailScreen` (create/list/copy/toggle-active/delete).
+  - `ShareLinkDetailScreen` (`/worlds/$worldId/books/$bookId/shares/$linkId`) avec 2 tabs Readers / All feedback. Toggles inline pour active/comments/drafts.
+  - 4ème tab **Feedback (N)** dans `ChapterScreen` à côté de Versions/Summary/Chat, avec liste groupée par reader, focus sur clic, delete avec confirm.
+  - **Margin dots** colorés (vert/rouge/jaune) sur la gouttière gauche de l'éditeur, click → switch tab Feedback + focus item. Recalcul sur scroll/resize.
+  - Deeplink `#ann=<id>` dans l'URL d'un chapter → auto-switch tab Feedback + focus item au mount.
+- **Tests** : 3 nouveaux fichiers Vitest (17 tests : anchor, selection capture, render HTML). 1 spec Playwright (2 tests : `/r/<bad>` ne redirige pas vers login).
+- **Demo guide** : [docs/demo/public-reader.md](./demo/public-reader.md).
+
+### Décisions tranchées
+
+- **Token = 32-char hex** (`crypto.randomUUID().replace(/-/g,'')`). Unguessable.
+- **Edge function service-role plutôt que RLS public-anon** — boundary serveur unique, validation token centralisée, plus simple à raisonner.
+- **Reader voit seulement SES propres annotations** (v1). Pas de social entre bêta-lecteurs.
+- **Visibilité chapter par link** : `include_drafts=false` (default) → seuls `status='published'` visibles. `include_drafts=true` → tous les chapters avec `final_version_id`. Les chapters vides (sans final_version) ne sont jamais exposés.
+- **`expires_at` default = +30 jours**. Override via picker custom date OU "No expiration".
+- **`allow_comments=false`** désactive seulement `kind='comment'` ; up/down restent possibles.
+- **Suppression côté reader** : oui, leurs propres annotations seulement (vérif `reader_session_id`). Pas d'édition.
+- **Anchoring fail-soft** : annotations orphelines listées côté auteur, pas drift silencieux.
+- **Rate limit 60/h/session** : suffisant pour bêta-lecteurs réels, pas un anti-spam blindé.
+- **Highlights auteur en marge gauche** plutôt que sur le texte directement — n'interfère pas avec la frappe Tiptap.
+
+### À pilote live (étape user)
+
+- Apply V016 ✓
+- Deploy edge function `public-reader`
+- Pilote manuel selon `docs/demo/public-reader.md` (auteur + reader incognito + mobile emulation pour la selection toolbar)
+
+### À reprendre dans une prochaine session — point d'entrée
+
+À déterminer après pilote. Si la sélection mobile pose problème → refactor SelectionToolbar avec un bouton flottant persistant. Sinon, prochain chunk libre (notif auteur sur nouveau commentaire ? scroll auteur vers anchor inline ?).
+
+---
+
 ## Status (2026-05-02 nuit++++, slice 2b — agents docs livrées + 2a.2 validé live)
 
 **Slice 2b (post-v1, vision v2 IA externe — agents qui consomment le MCP) livrée côté docs. 2a.2 validé live en passant. Aucune migration, aucun code app.**

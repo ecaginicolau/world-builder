@@ -16,20 +16,32 @@ export function RootLayout({ children }: Props) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
+  const isPublicReader = pathname.startsWith('/r/');
+
   useEffect(() => {
+    if (isPublicReader) return;
     if (session.status === 'anon' && pathname !== '/login') {
       void navigate({ to: '/login' });
     }
     if (session.status === 'authed' && pathname === '/login') {
       void navigate({ to: '/worlds' });
     }
-  }, [session.status, pathname, navigate]);
+  }, [session.status, pathname, navigate, isPublicReader]);
 
-  if (session.status === 'loading') {
+  if (session.status === 'loading' && !isPublicReader) {
     return (
       <div className="flex h-full items-center justify-center text-fg-muted" data-testid="boot">
         Loading…
       </div>
+    );
+  }
+
+  if (isPublicReader) {
+    return (
+      <>
+        {children}
+        <ConfirmDialog />
+      </>
     );
   }
 

@@ -50,8 +50,12 @@ import type { EntityHighlightSpec } from '@/features/notes/entityHighlightExtens
 import type { TaggedEntity } from '@/lib/llm';
 import type { EntityVersion, FieldDef } from '@/features/entities/types';
 import { useConfirm } from '@/lib/useConfirm';
+import { ReaderFeedbackPanel } from './ReaderFeedbackPanel';
+import { useReaderAnnotationsByChapter } from '@/lib/queries/readerAnnotations';
+import { findAnchor } from '@/features/publicReader/anchorAnnotations';
+import { htmlToPlaintext } from '@/features/publicReader/renderAnnotatedHtml';
 
-type RightTab = 'versions' | 'summary' | 'chat';
+type RightTab = 'versions' | 'summary' | 'chat' | 'feedback';
 
 export function ChapterScreen() {
   const { worldId, chapterId } = useParams({
@@ -72,6 +76,7 @@ export function ChapterScreen() {
   const chapterEventsQ = useChapterEvents(chapterId);
   const allChapterEventsQ = useChapterEventsByWorld(worldId);
   const settingsQ = useUserSettings();
+  const feedbackQ = useReaderAnnotationsByChapter(chapterId);
   const linkSource = useChapterLinkSource(chapterId);
   const updateChapter = useUpdateChapter();
   const createVersion = useCreateChapterVersion();
@@ -88,7 +93,17 @@ export function ChapterScreen() {
   const [proposeOpen, setProposeOpen] = useState(false);
   const [summarizing, setSummarizing] = useState<SummaryLength | null>(null);
   const [summarizeError, setSummarizeError] = useState<string | null>(null);
+  const [focusedAnnotationId, setFocusedAnnotationId] = useState<string | null>(null);
   const editorRef = useRef<NoteEditorHandle>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const m = window.location.hash.match(/^#ann=(.+)$/);
+    if (m) {
+      setRightTab('feedback');
+      setFocusedAnnotationId(decodeURIComponent(m[1]));
+    }
+  }, [chapterId]);
 
   const versions = useMemo(() => versionsQ.data ?? [], [versionsQ.data]);
   const finalVersion = useMemo(
@@ -617,7 +632,7 @@ export function ChapterScreen() {
           />
         </aside>
 
-        <div className="order-1 min-h-0 overflow-y-auto md:order-2">
+        <div ref={editorContainerRef} className="order-1 relative min-h-0 overflow-y-auto md:order-2">
           <NoteEditor
             ref={editorRef}
             key={selectedVersion.id}
@@ -627,6 +642,18 @@ export function ChapterScreen() {
             entityHighlights={entityHighlights}
             readOnly={isPublished}
           />
+          {feedbackQ.data && feedbackQ.data.length > 0 && finalVersion ? (
+            <FeedbackMarginDots
+              containerRef={editorContainerRef}
+              annotations={feedbackQ.data}
+              chapterText={finalVersion.text}
+              focusedId={focusedAnnotationId}
+              onClick={(id) => {
+                setRightTab('feedback');
+                setFocusedAnnotationId(id);
+              }}
+            />
+          ) : null}
         </div>
 
         <div className="order-3 flex min-h-0 flex-col gap-2">
@@ -663,6 +690,17 @@ export function ChapterScreen() {
               data-testid="tab-chat"
             >
               Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setRightTab('feedback')}
+              className={
+                'flex-1 px-2 py-1 text-sm ' +
+                (rightTab === 'feedback' ? 'bg-accent text-accent-fg' : 'bg-bg-subtle hover:bg-bg-panel')
+              }
+              data-testid="tab-feedback"
+            >
+              Feedback{feedbackQ.data && feedbackQ.data.length > 0 ? ` (${feedbackQ.data.length})` : ''}
             </button>
           </div>
           <div className="flex min-h-0 flex-1">
@@ -708,7 +746,7 @@ export function ChapterScreen() {
                   }
                 />
               </div>
-            ) : (
+            ) : rightTab === 'chat' ? (
               <div className="min-w-0 flex-1">
                 <ChatPanel
                   parentKind="chapter"
@@ -733,6 +771,21 @@ export function ChapterScreen() {
                     return formatPccBlock(slots);
                   }}
                 />
+              </div>
+            ) : (
+              <div className="min-w-0 flex-1">
+                {chapterQ.data && partsQ.data ? (
+                  <ReaderFeedbackPanel
+                    chapterId={chapterId}
+                    bookId={
+                      partsQ.data.find((p) => p.id === chapterQ.data!.part_id)?.book_id ?? ''
+                    }
+                    focusAnnotationId={focusedAnnotationId}
+                    onFocus={(id) => setFocusedAnnotationId(id)}
+                  />
+                ) : (
+                  <p className="px-3 py-3 text-sm text-fg-muted">Loading…</p>
+                )}
               </div>
             )}
           </div>
@@ -810,4 +863,113 @@ async function buildPccSlots(args: {
     finalVersionByChapter: versionsById,
     slots: configuredSlots,
   });
+}
+
+interface MarginDotsProps {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  annotations: { id: string; kind: 'up' | 'down' | 'comment'; selected_text: string; before_ctx: string; after_ctx: string }[];
+  chapterText: string;
+  focusedId: string | null;
+  onClick: (id: string) => void;
+}
+
+function FeedbackMarginDots({ containerRef, annotations, chapterText, focusedId, onClick }: MarginDotsProps) {
+  const [dots, setDots] = useState<{ id: string; kind: 'up' | 'down' | 'comment'; top: number }[]>([]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const compute = () => {
+      const plain = htmlToPlaintext(chapterText);
+      const proseEl = container.querySelector('.ProseMirror') as HTMLElement | null;
+      if (!proseEl) {
+        setDots([]);
+        return;
+      }
+      const containerRect = container.getBoundingClientRect();
+
+      const out: { id: string; kind: 'up' | 'down' | 'comment'; top: number }[] = [];
+      for (const ann of annotations) {
+        const range = findAnchor(plain, ann);
+        if (!range) continue;
+        const domRange = createDomRange(proseEl, range.start, range.end);
+        if (!domRange) continue;
+        const rect = domRange.getBoundingClientRect();
+        if (rect.height === 0) continue;
+        const top = rect.top - containerRect.top + container.scrollTop;
+        out.push({ id: ann.id, kind: ann.kind, top });
+      }
+      setDots(out);
+    };
+
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(container);
+    container.addEventListener('scroll', compute);
+    return () => {
+      ro.disconnect();
+      container.removeEventListener('scroll', compute);
+    };
+  }, [containerRef, annotations, chapterText]);
+
+  const colorFor = (kind: 'up' | 'down' | 'comment') =>
+    kind === 'up' ? '#22c55e' : kind === 'down' ? '#ef4444' : '#eab308';
+
+  return (
+    <div className="pointer-events-none absolute left-0 top-0 h-full w-2" aria-hidden>
+      {dots.map((d) => (
+        <button
+          key={d.id}
+          type="button"
+          onClick={() => onClick(d.id)}
+          className="pointer-events-auto absolute -translate-y-1/2 rounded-full transition-transform hover:scale-150"
+          style={{
+            left: 2,
+            top: d.top + 8,
+            width: 8,
+            height: 8,
+            background: colorFor(d.kind),
+            boxShadow: focusedId === d.id ? `0 0 0 3px ${colorFor(d.kind)}55` : undefined,
+          }}
+          data-testid="feedback-margin-dot"
+          data-annotation-id={d.id}
+          title="Reader feedback"
+        />
+      ))}
+    </div>
+  );
+}
+
+function createDomRange(root: HTMLElement, start: number, end: number): Range | null {
+  const walker = (root.ownerDocument ?? document).createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let count = 0;
+  let startNode: Node | null = null;
+  let startOffset = 0;
+  let endNode: Node | null = null;
+  let endOffset = 0;
+  let n: Node | null = walker.nextNode();
+  while (n) {
+    const len = (n as Text).data.length;
+    if (!startNode && count + len >= start) {
+      startNode = n;
+      startOffset = start - count;
+    }
+    if (count + len >= end) {
+      endNode = n;
+      endOffset = end - count;
+      break;
+    }
+    count += len;
+    n = walker.nextNode();
+  }
+  if (!startNode || !endNode) return null;
+  try {
+    const r = (root.ownerDocument ?? document).createRange();
+    r.setStart(startNode, startOffset);
+    r.setEnd(endNode, endOffset);
+    return r;
+  } catch {
+    return null;
+  }
 }
