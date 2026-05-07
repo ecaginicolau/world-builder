@@ -28,24 +28,8 @@ export function CommentInput({ selection, anchor, onSubmit, onCancel }: Props) {
     onSubmit(trimmed);
   }
 
-  const Wrapper = isMobile
-    ? ({ children }: { children: React.ReactNode }) => (
-        <div className="reader-modal-backdrop" data-testid="reader-comment-modal">
-          <div className="reader-modal">{children}</div>
-        </div>
-      )
-    : ({ children }: { children: React.ReactNode }) => (
-        <div
-          className="reader-comment-popover"
-          style={{ left: anchor.x, top: anchor.y + 48 }}
-          data-testid="reader-comment-popover"
-        >
-          {children}
-        </div>
-      );
-
-  return (
-    <Wrapper>
+  const inner = (
+    <>
       <div style={{ fontSize: '0.8rem', color: 'var(--reader-fg-muted)', marginBottom: 8 }}>
         Selected: <em>"{truncate(selection.selected_text, 80)}"</em>
       </div>
@@ -77,7 +61,25 @@ export function CommentInput({ selection, anchor, onSubmit, onCancel }: Props) {
           {submitting ? 'Saving…' : 'Send'}
         </button>
       </div>
-    </Wrapper>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="reader-modal-backdrop" data-testid="reader-comment-modal">
+        <div className="reader-modal">{inner}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="reader-comment-popover"
+      style={{ left: anchor.x, top: anchor.y + 48 }}
+      data-testid="reader-comment-popover"
+    >
+      {inner}
+    </div>
   );
 }
 
