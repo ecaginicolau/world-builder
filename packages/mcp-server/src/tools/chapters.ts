@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerContext } from "../context.js";
-import { fail, fromSupabase, ok } from "../response.js";
+import { fail, ok } from "../response.js";
 import { buildPcc } from "../pcc.js";
 
 const SUMMARY_LEVEL = z.enum(["s", "m", "l"]);
@@ -15,7 +15,7 @@ export function registerChaptersReadTools(
     {
       title: "List chapters",
       description:
-        "List chapters in a world (or limited to one book), sorted by reading_rank within their part.",
+        "List chapters in a world (or limited to one book), in full reading order: book.rank → part.rank → reading_rank.",
       inputSchema: {
         world_id: z.string().uuid(),
         book_id: z.string().uuid().optional(),
@@ -24,22 +24,31 @@ export function registerChaptersReadTools(
     async ({ world_id, book_id }) => {
       let q = ctx.supabase
         .from("chapters")
-        .select("*")
+        .select("*, parts!inner(rank, book_id, books!inner(rank))")
         .eq("world_id", world_id)
-        .eq("owner_id", ctx.ownerId)
-        .order("reading_rank", { ascending: true });
+        .eq("owner_id", ctx.ownerId);
       if (book_id) {
-        const partsRes = await ctx.supabase
-          .from("parts")
-          .select("id")
-          .eq("book_id", book_id);
-        if (partsRes.error) return fail(partsRes.error.message);
-        const partIds = (partsRes.data ?? []).map((p) => p.id);
-        if (partIds.length === 0) return ok([]);
-        q = q.in("part_id", partIds);
+        q = q.eq("parts.book_id", book_id);
       }
       const r = await q;
-      return fromSupabase(r);
+      if (r.error) return fail(r.error.message);
+      type Row = Record<string, unknown> & {
+        reading_rank: string;
+        parts: { rank: string; book_id: string; books: { rank: string } };
+      };
+      const rows = (r.data ?? []) as Row[];
+      rows.sort((a, b) => {
+        const ba = a.parts.books.rank;
+        const bb = b.parts.books.rank;
+        if (ba !== bb) return ba < bb ? -1 : 1;
+        const pa = a.parts.rank;
+        const pb = b.parts.rank;
+        if (pa !== pb) return pa < pb ? -1 : 1;
+        if (a.reading_rank === b.reading_rank) return 0;
+        return a.reading_rank < b.reading_rank ? -1 : 1;
+      });
+      const stripped = rows.map(({ parts: _parts, ...rest }) => rest);
+      return ok(stripped);
     },
   );
 
