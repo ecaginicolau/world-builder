@@ -280,52 +280,13 @@ export function PublicReaderChapterScreen() {
     >
       <div style={{ padding: '24px 16px 64px' }}>
         <div className="reader-prose" style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontFamily: 'system-ui, -apple-system, sans-serif',
-              fontSize: '0.85rem',
-              color: 'var(--reader-fg-muted)',
-              marginBottom: 16,
-            }}
-          >
-            <Link
-              to="/r/$token"
-              params={{ token }}
-              className="reader-link"
-              data-testid="reader-back-toc"
-            >
-              ← Contents
-            </Link>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="reader-btn"
-                disabled={!prevId}
-                onClick={() =>
-                  prevId &&
-                  navigate({ to: '/r/$token/c/$chapterId', params: { token, chapterId: prevId } })
-                }
-                data-testid="reader-prev"
-              >
-                ← Prev
-              </button>
-              <button
-                type="button"
-                className="reader-btn"
-                disabled={!nextId}
-                onClick={() =>
-                  nextId &&
-                  navigate({ to: '/r/$token/c/$chapterId', params: { token, chapterId: nextId } })
-                }
-                data-testid="reader-next"
-              >
-                Next →
-              </button>
-            </div>
-          </div>
+          <ChapterNav
+            token={token}
+            prevId={prevId}
+            nextId={nextId}
+            navigate={navigate}
+            position="top"
+          />
           <h1
             style={{
               fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -346,6 +307,15 @@ export function PublicReaderChapterScreen() {
           dangerouslySetInnerHTML={{ __html: rendered.html }}
           data-testid="reader-chapter-body"
         />
+        <div className="reader-prose" style={{ marginTop: 32 }}>
+          <ChapterNav
+            token={token}
+            prevId={prevId}
+            nextId={nextId}
+            navigate={navigate}
+            position="bottom"
+          />
+        </div>
       </div>
       <SelectionToolbar
         containerRef={bodyRef}
@@ -368,5 +338,79 @@ export function PublicReaderChapterScreen() {
         </div>
       ) : null}
     </ReaderShell>
+  );
+}
+
+function ChapterNav({
+  token,
+  prevId,
+  nextId,
+  navigate,
+  position,
+}: {
+  token: string;
+  prevId: string | null;
+  nextId: string | null;
+  navigate: ReturnType<typeof useNavigate>;
+  position: 'top' | 'bottom';
+}) {
+  const suffix = position === 'bottom' ? '-bottom' : '';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '0.85rem',
+        color: 'var(--reader-fg-muted)',
+        marginBottom: position === 'top' ? 16 : 0,
+        marginTop: position === 'bottom' ? 16 : 0,
+        paddingTop: position === 'bottom' ? 16 : 0,
+        borderTop:
+          position === 'bottom' ? '1px solid var(--reader-rule, #e5e5e5)' : 'none',
+      }}
+    >
+      <Link
+        to="/r/$token"
+        params={{ token }}
+        className="reader-link"
+        data-testid={`reader-back-toc${suffix}`}
+      >
+        ← Contents
+      </Link>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          type="button"
+          className="reader-btn"
+          disabled={!prevId}
+          onClick={() =>
+            prevId &&
+            navigate({
+              to: '/r/$token/c/$chapterId',
+              params: { token, chapterId: prevId },
+            })
+          }
+          data-testid={`reader-prev${suffix}`}
+        >
+          ← Prev
+        </button>
+        <button
+          type="button"
+          className="reader-btn"
+          disabled={!nextId}
+          onClick={() =>
+            nextId &&
+            navigate({
+              to: '/r/$token/c/$chapterId',
+              params: { token, chapterId: nextId },
+            })
+          }
+          data-testid={`reader-next${suffix}`}
+        >
+          Next →
+        </button>
+      </div>
+    </div>
   );
 }
