@@ -2,7 +2,9 @@
 
 This walkthrough sets up the **World Builder MCP server** locally so an MCP-compatible client (Claude Code, Claude Desktop, mcp inspector, custom agents) can read and write your worlds.
 
-> Slice 2a ships **51 tools**: 18 reads, 29 writes (all logged), `get_writing_guide` orientation tool, and 4 LLM intents (`auto_extract_from_note`, `propose_canon_from_chapter`, `upscale_chapter`, `summarize_chapter`) added in 2a.2.
+> Slice 2a ships **55 tools**: 21 reads, 30 writes (all logged), `get_writing_guide` orientation tool, and 4 LLM intents (`auto_extract_from_note`, `propose_canon_from_chapter`, `upscale_chapter`, `summarize_chapter`) added in 2a.2.
+>
+> Post-v1 reader add-on (V016): 3 read tools `list_share_links` / `list_reader_sessions` / `list_reader_annotations` so the agent can see beta-reader feedback (👍 / 👎 / inline comments) on chapters, plus `delete_reader_annotation` to clear feedback the author has addressed in the prose.
 
 ## Pre-requisites
 

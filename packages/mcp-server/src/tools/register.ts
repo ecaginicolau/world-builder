@@ -7,12 +7,14 @@ import { registerEventsReadTools } from "./events.js";
 import { registerChaptersReadTools } from "./chapters.js";
 import { registerBooksReadTools } from "./books.js";
 import { registerSearchTools } from "./search.js";
+import { registerReaderAnnotationsTools } from "./readerAnnotations.js";
 import { registerNotesWriteTools } from "./notesWrite.js";
 import { registerEntitiesWriteTools } from "./entitiesWrite.js";
 import { registerEventsWriteTools } from "./eventsWrite.js";
 import { registerChaptersWriteTools } from "./chaptersWrite.js";
 import { registerBooksPartsWriteTools } from "./booksPartsWrite.js";
 import { registerLinksWriteTools } from "./linksWrite.js";
+import { registerReaderAnnotationsWriteTools } from "./readerAnnotationsWrite.js";
 import { registerIntentsTools } from "./intents.js";
 
 export function registerAllTools(server: McpServer, ctx: ServerContext) {
@@ -24,6 +26,7 @@ export function registerAllTools(server: McpServer, ctx: ServerContext) {
   registerChaptersReadTools(server, ctx);
   registerBooksReadTools(server, ctx);
   registerSearchTools(server, ctx);
+  registerReaderAnnotationsTools(server, ctx);
 
   // Writes — logged in agent_actions.
   registerNotesWriteTools(server, ctx);
@@ -32,6 +35,7 @@ export function registerAllTools(server: McpServer, ctx: ServerContext) {
   registerChaptersWriteTools(server, ctx);
   registerBooksPartsWriteTools(server, ctx);
   registerLinksWriteTools(server, ctx);
+  registerReaderAnnotationsWriteTools(server, ctx);
 
   // Intents — LLM-driven (auto_extract, propose_canon, upscale, summarize).
   registerIntentsTools(server, ctx);

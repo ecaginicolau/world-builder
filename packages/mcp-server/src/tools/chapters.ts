@@ -15,7 +15,10 @@ export function registerChaptersReadTools(
     {
       title: "List chapters",
       description:
-        "List chapters in a world (or limited to one book), in full reading order: book.rank → part.rank → reading_rank.",
+        "List chapters in a world (or limited to one book), in full reading order: book.rank → part.rank → reading_rank. " +
+        "Each row carries a 1-indexed `position` (across the returned set) and `book_position` (within its book). " +
+        "ALWAYS use these ordinals — not the fractional `reading_rank` strings (e.g. 'a0', 'a0V') — when telling the user 'chapter N' or comparing order. " +
+        "Fractional ranks sort correctly lexicographically but are easy to misread; the ordinals are the single source of truth.",
       inputSchema: {
         world_id: z.string().uuid(),
         book_id: z.string().uuid().optional(),
@@ -24,7 +27,9 @@ export function registerChaptersReadTools(
     async ({ world_id, book_id }) => {
       let q = ctx.supabase
         .from("chapters")
-        .select("*, parts!inner(rank, book_id, books!inner(rank))")
+        .select(
+          "*, parts!inner(rank, book_id, title, books!inner(rank, title))",
+        )
         .eq("world_id", world_id)
         .eq("owner_id", ctx.ownerId);
       if (book_id) {
@@ -34,7 +39,12 @@ export function registerChaptersReadTools(
       if (r.error) return fail(r.error.message);
       type Row = Record<string, unknown> & {
         reading_rank: string;
-        parts: { rank: string; book_id: string; books: { rank: string } };
+        parts: {
+          rank: string;
+          book_id: string;
+          title: string | null;
+          books: { rank: string; title: string };
+        };
       };
       const rows = (r.data ?? []) as Row[];
       rows.sort((a, b) => {
@@ -47,7 +57,21 @@ export function registerChaptersReadTools(
         if (a.reading_rank === b.reading_rank) return 0;
         return a.reading_rank < b.reading_rank ? -1 : 1;
       });
-      const stripped = rows.map(({ parts: _parts, ...rest }) => rest);
+      const bookCounters = new Map<string, number>();
+      const stripped = rows.map((row, i) => {
+        const bookId = row.parts.book_id;
+        const bookPos = (bookCounters.get(bookId) ?? 0) + 1;
+        bookCounters.set(bookId, bookPos);
+        const { parts: _parts, ...rest } = row;
+        return {
+          position: i + 1,
+          book_position: bookPos,
+          book_id: bookId,
+          book_title: row.parts.books.title,
+          part_title: row.parts.title,
+          ...rest,
+        };
+      });
       return ok(stripped);
     },
   );
