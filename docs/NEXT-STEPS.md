@@ -2,6 +2,57 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-09, slice illustrations — illustrations attachées aux entities + embed dans chapitres livrés, en attente de pilote live)
+
+**Slice "illustrations" (post-v1) livrée côté code. V017 appliquée. Typecheck + lint + 186 Vitest ✓. Pilote local Chrome MCP : upload + gallery + picker + insertion Tiptap + NodeView ✓.**
+
+Voir **[docs/demo/illustrations.md](./demo/illustrations.md)** pour le walkthrough.
+
+### Migration V017 (appliquée)
+
+- Table `entity_illustrations` (id, entity_id, world_id, owner_id, storage_path unique, caption, alt_text, mime_type, byte_size, width, height, display_order, timestamps). RLS owner full-access.
+- Bucket Storage `illustrations` créé en lecture publique. Path convention `{world_id}/{entity_id}/{uuid}.{ext}`. RLS owner-write via lookup `world_id` du path.
+- Pas de pivot chapter ↔ illustration : la référence vit dans le contenu Tiptap du chapitre (`<figure data-illustration-id="…">`).
+
+### Edge function `public-reader` (à redéployer par user)
+
+`supabase/functions/public-reader/index.ts` modifié — `getChapter` hydrate maintenant les illustrations en injectant le `src` public + caption avant de retourner le HTML au reader. Hydration via regex string-only (pas de DOM). Best-effort si illustration supprimée → placeholder `[illustration unavailable]`.
+
+À redéployer via `supabase functions deploy public-reader --no-verify-jwt`.
+
+### Livré
+
+- **Slice A — entity-side** : `IllustrationsSection` ajouté en bas de `EntityDetailScreen`. Upload (10MB max, image/* MIME), grid 2-4 cols, modal détail (caption + alt edit, ← Earlier / Later → reorder, delete avec confirm). Hooks dans `src/lib/queries/illustrations.ts` (`useEntityIllustrations`, `useUploadIllustration`, `useUpdateIllustration`, `useDeleteIllustration`, `useReorderIllustrations`, `useIllustration`, `useIllustrationsByIds`, `useWorldIllustrations`).
+- **Slice B — chapter-side** :
+  - **Tiptap node `IllustrationExtension`** (block atom, draggable) avec NodeView React qui fetch via `useIllustration` et rend `<figure><img/><figcaption/></figure>` + bouton "Remove from chapter" en mode édition.
+  - **NoteEditor.enableIllustrations** : prop opt-in qui ajoute l'extension + expose `insertIllustration(id, entityId)` via le imperative handle.
+  - **InsertIllustrationButton** + `PickerModal` au-dessus de l'éditeur dans ChapterScreen — picker groupé par entity, badge "IN THIS CHAPTER" pour les participants du chapter, search par nom d'entity ou caption.
+  - **Hydration helper** (`src/lib/illustrationHydration.ts`) : extrait IDs + remplace `<figure data-illustration-id>` par version résolue avec `src` public. String-only, Deno-compatible.
+  - **PDF export** : `parseHtmlToBlocks` détecte les figures, émet block `illustration`. `bookPdfExport` fetch toutes les illustrations référencées en une fois via `resolveBookIllustrations`, rend chaque image en `<Image>` A5 fittée (max 280pt height, ratio préservé) avec caption italique. `wrap={false}` pour éviter coupure entre pages.
+  - **Public reader** : edge function hydrate avant de renvoyer le HTML, CSS `.wb-illustration` ajoutée à `reader.css`.
+- **Demo guide** : [docs/demo/illustrations.md](./demo/illustrations.md).
+
+### Décisions tranchées
+
+- **Strictement attachées aux entities (1-N)** v1 — `entity_id NOT NULL`. Si un paysage / une carte sans entity rattachée devient gênant, on relâche en v2 (entity_id nullable).
+- **Bucket public en lecture** — UUIDs imprévisibles, contenu non sensible (illustrations de roman destinées aux readers).
+- **Pas de resize côté client v1** — préserve la qualité pour l'export PDF / impression. v2 : garder full-res + ajouter une variante thumbnail pour la lecture.
+- **Référence par ID dans le HTML, pas par URL** — si l'illustration change ou est renommée, tous les chapters suivent. Hydratation au rendu.
+- **Pas de cascade DB** quand une illustration est supprimée — UI affiche placeholder, pas de scan/parse de tous les contenus chapitre.
+- **Caption canon, pas d'override par chapitre** v1 — simplifie le node Tiptap. Si besoin per-chapter, ajouter un attribut `captionOverride` sur le node.
+
+### À piloter live (étape user)
+
+- Apply V017 ✓
+- Redeploy edge function `public-reader` (pour tester la hydratation côté reader)
+- Pilote manuel selon `docs/demo/illustrations.md` : upload réel sur une entity, insert dans un chapter, export PDF, public reader.
+
+### À reprendre dans une prochaine session — point d'entrée
+
+À déterminer après pilote. Si l'absence de resize pose problème (PDF lourds, read view lente) → ajouter une variante thumbnail générée au upload (deux objets dans le bucket, `display.webp` 1024px max + `original.{ext}`). Sinon, prochain chunk libre.
+
+---
+
 ## Status (2026-05-07, slice public-reader — partage de book + annotations livré, en attente de validation live)
 
 **Slice "public reader" (post-v1, ergonomie auteur ↔ lecteurs externes) livrée côté code. V016 appliquée. Build + typecheck + lint 0 erreur + 137 Vitest ✓ + 6 Playwright ✓ + prod build ✓.**

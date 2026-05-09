@@ -51,6 +51,8 @@ import type { TaggedEntity } from '@/lib/llm';
 import type { EntityVersion, FieldDef } from '@/features/entities/types';
 import { useConfirm } from '@/lib/useConfirm';
 import { ReaderFeedbackPanel } from './ReaderFeedbackPanel';
+import { InsertIllustrationButton } from './InsertIllustrationButton';
+import { illustrationSequence } from '@/lib/illustrationHydration';
 import { useReaderAnnotationsByChapter } from '@/lib/queries/readerAnnotations';
 import { findAnchor } from '@/features/publicReader/anchorAnnotations';
 import { htmlToPlaintext } from '@/features/publicReader/renderAnnotatedHtml';
@@ -458,7 +460,16 @@ export function ChapterScreen() {
 
   function onEditorDebouncedChange(html: string) {
     if (isPublished) return;
-    if (selectedVersion && htmlToPlainText(html) === htmlToPlainText(selectedVersion.text)) {
+    // Equality check: same plaintext AND same illustration sequence (order +
+    // duplicates included). The plaintext check avoids spurious saves when
+    // Tiptap re-renders identical content with different tag-level diffs;
+    // the illustration check catches insert/remove/reorder which produce
+    // zero plaintext delta.
+    if (
+      selectedVersion &&
+      htmlToPlainText(html) === htmlToPlainText(selectedVersion.text) &&
+      illustrationSequence(html) === illustrationSequence(selectedVersion.text)
+    ) {
       setDirty(false);
       return;
     }
@@ -621,6 +632,16 @@ export function ChapterScreen() {
 
       <div className="grid min-h-0 flex-1 gap-4 grid-cols-1 md:grid-cols-[260px_1fr_540px]">
         <aside className="order-2 flex min-h-0 flex-col gap-4 overflow-y-auto md:order-1">
+          {!isPublished ? (
+            <InsertIllustrationButton
+              worldId={worldId}
+              chapterId={chapterId}
+              disabled={isPublished}
+              onPick={(illustrationId, entityId) =>
+                editorRef.current?.insertIllustration(illustrationId, entityId)
+              }
+            />
+          ) : null}
           <EventsCoveredPanel worldId={worldId} chapterId={chapterId} />
           <LinkedEntitiesPanel worldId={worldId} source={linkSource} />
           <DetectedEntitiesPanel
@@ -641,6 +662,7 @@ export function ChapterScreen() {
             onLiveUpdate={setLiveText}
             entityHighlights={entityHighlights}
             readOnly={isPublished}
+            enableIllustrations
           />
           {feedbackQ.data && feedbackQ.data.length > 0 && finalVersion ? (
             <FeedbackMarginDots

@@ -1,6 +1,13 @@
-import { Document, Page, Text, View, StyleSheet, pdf } from '@react-pdf/renderer';
+import { Document, Image, Page, Text, View, StyleSheet, pdf } from '@react-pdf/renderer';
 import { parseHtmlToBlocks } from '@/lib/htmlToPdfContent';
-import type { PdfBlock, TextRun } from '@/lib/htmlToPdfContent';
+import type { IllustrationResolution, PdfBlock, TextRun } from '@/lib/htmlToPdfContent';
+import { extractIllustrationIds } from '@/lib/illustrationHydration';
+import { publicUrlFor } from '@/lib/queries/illustrations';
+import { supabase } from '@/lib/supabase';
+
+// A5 inner width = 148mm − 25mm − 20mm = ~103mm = ~291.5pt
+const PAGE_INNER_WIDTH_PT = 291.5;
+const ILLUSTRATION_MAX_HEIGHT_PT = 280;
 
 // A5 (format poche): 148 × 210 mm = 419.5 × 595.3 pt
 // Margins: ~23mm top/bottom, ~25mm left, ~20mm right
@@ -103,7 +110,44 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: '#888',
   },
+  illustrationContainer: {
+    marginTop: 10,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  illustrationImage: {
+    objectFit: 'contain',
+  },
+  illustrationCaption: {
+    marginTop: 4,
+    textAlign: 'center',
+    fontFamily: 'Times-Italic',
+    fontSize: 9.5,
+    color: '#555',
+  },
+  illustrationMissing: {
+    marginTop: 10,
+    marginBottom: 12,
+    textAlign: 'center',
+    fontFamily: 'Times-Italic',
+    fontSize: 9.5,
+    color: '#999',
+  },
 });
+
+function fitImage(width: number | null, height: number | null) {
+  if (!width || !height) {
+    return { width: PAGE_INNER_WIDTH_PT, height: ILLUSTRATION_MAX_HEIGHT_PT };
+  }
+  const ratio = width / height;
+  let w = PAGE_INNER_WIDTH_PT;
+  let h = w / ratio;
+  if (h > ILLUSTRATION_MAX_HEIGHT_PT) {
+    h = ILLUSTRATION_MAX_HEIGHT_PT;
+    w = h * ratio;
+  }
+  return { width: w, height: h };
+}
 
 function renderRuns(runs: TextRun[]) {
   if (runs.length === 1 && !runs[0].bold && !runs[0].italic) {
@@ -159,6 +203,24 @@ function renderBlock(block: PdfBlock, key: number) {
           {renderRuns(block.runs)}
         </Text>
       );
+    case 'illustration': {
+      if (!block.src) {
+        return (
+          <Text key={key} style={styles.illustrationMissing}>
+            [illustration unavailable]
+          </Text>
+        );
+      }
+      const dims = fitImage(block.width, block.height);
+      return (
+        <View key={key} style={styles.illustrationContainer} wrap={false}>
+          <Image src={block.src} style={[styles.illustrationImage, dims]} />
+          {block.caption ? (
+            <Text style={styles.illustrationCaption}>{block.caption}</Text>
+          ) : null}
+        </View>
+      );
+    }
   }
 }
 
@@ -193,7 +255,13 @@ function PageFooter() {
   );
 }
 
-function BookPdfDocument({ book }: { book: BookExportData }) {
+function BookPdfDocument({
+  book,
+  illustrations,
+}: {
+  book: BookExportData;
+  illustrations: Map<string, IllustrationResolution>;
+}) {
   const multiPart = book.parts.length > 1;
   const pages: React.ReactElement[] = [];
 
@@ -220,7 +288,7 @@ function BookPdfDocument({ book }: { book: BookExportData }) {
     let chapterIndex = 0;
     for (const chapter of part.chapters) {
       chapterIndex++;
-      const blocks = parseHtmlToBlocks(chapter.text);
+      const blocks = parseHtmlToBlocks(chapter.text, illustrations);
       const heading = chapter.title
         ? `Chapitre ${chapterIndex} — ${chapter.title}`
         : `Chapitre ${chapterIndex}`;
@@ -238,8 +306,44 @@ function BookPdfDocument({ book }: { book: BookExportData }) {
   return <Document title={book.title}>{pages}</Document>;
 }
 
+async function resolveBookIllustrations(
+  book: BookExportData,
+): Promise<Map<string, IllustrationResolution>> {
+  const ids = new Set<string>();
+  for (const part of book.parts) {
+    for (const ch of part.chapters) {
+      for (const id of extractIllustrationIds(ch.text)) ids.add(id);
+    }
+  }
+  const map = new Map<string, IllustrationResolution>();
+  if (ids.size === 0) return map;
+  const { data, error } = await supabase
+    .from('entity_illustrations')
+    .select('id, storage_path, caption, alt_text, width, height')
+    .in('id', Array.from(ids));
+  if (error) throw error;
+  for (const row of (data ?? []) as Array<{
+    id: string;
+    storage_path: string;
+    caption: string | null;
+    alt_text: string | null;
+    width: number | null;
+    height: number | null;
+  }>) {
+    map.set(row.id, {
+      src: publicUrlFor(row.storage_path),
+      caption: row.caption,
+      alt: row.alt_text ?? row.caption ?? '',
+      width: row.width,
+      height: row.height,
+    });
+  }
+  return map;
+}
+
 export async function generateBookPdf(book: BookExportData): Promise<void> {
-  const blob = await pdf(<BookPdfDocument book={book} />).toBlob();
+  const illustrations = await resolveBookIllustrations(book);
+  const blob = await pdf(<BookPdfDocument book={book} illustrations={illustrations} />).toBlob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

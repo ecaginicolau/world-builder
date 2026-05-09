@@ -24,6 +24,7 @@ import {
   type TimelineAnchor,
 } from './versioning';
 import { INIT_RANK } from '@/lib/ranks';
+import { IllustrationsSection } from './IllustrationsSection';
 import type { EntityVersion, FieldDef, FieldValue } from './types';
 
 export function EntityDetailScreen() {
@@ -285,6 +286,8 @@ export function EntityDetailScreen() {
           />
         </div>
       </section>
+
+      <IllustrationsSection entityId={entity.id} worldId={worldId} />
     </main>
   );
 }

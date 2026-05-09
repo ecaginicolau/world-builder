@@ -60,3 +60,20 @@ export interface NoteEntity {
 export interface EntityWithType extends Entity {
   type_name: string;
 }
+
+export interface EntityIllustration {
+  id: string;
+  entity_id: string;
+  world_id: string;
+  owner_id: string;
+  storage_path: string;
+  caption: string | null;
+  alt_text: string | null;
+  mime_type: string;
+  byte_size: number | null;
+  width: number | null;
+  height: number | null;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}

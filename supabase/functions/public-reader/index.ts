@@ -113,13 +113,25 @@ async function resolveLink(body: any) {
     let q = sb
       .from('chapters')
       .select('id, part_id, title, reading_rank, status, final_version_id')
-      .in('part_id', partIds)
-      .order('reading_rank');
+      .in('part_id', partIds);
     if (!link.include_drafts) q = q.eq('status', 'published');
     const { data: chs, error: chsErr } = await q;
     if (chsErr) return json({ error: chsErr.message }, 500);
     // Always exclude chapters with no final_version (empty) from public view.
-    chapters = (chs ?? []).filter((c: any) => !!c.final_version_id);
+    // Sort by (part.rank, reading_rank) — `reading_rank` is unique only within
+    // a part, so ordering by it alone interleaves parts. Build a part-rank
+    // lookup from the already-fetched `parts` list.
+    const partRankById = new Map<string, string>();
+    for (const p of parts ?? []) partRankById.set(p.id, p.rank);
+    chapters = (chs ?? [])
+      .filter((c: any) => !!c.final_version_id)
+      .sort((a: any, b: any) => {
+        const pa = partRankById.get(a.part_id) ?? '';
+        const pb = partRankById.get(b.part_id) ?? '';
+        if (pa !== pb) return pa < pb ? -1 : 1;
+        if (a.reading_rank === b.reading_rank) return 0;
+        return a.reading_rank < b.reading_rank ? -1 : 1;
+      });
   }
 
   return json({
@@ -218,6 +230,8 @@ async function getChapter(body: any) {
     .order('created_at', { ascending: true });
   if (annsErr) return json({ error: annsErr.message }, 500);
 
+  const text = await hydrateChapterIllustrations(ver.text);
+
   // Bump last_seen_at fire-and-forget.
   void sb
     .from('reader_sessions')
@@ -231,10 +245,74 @@ async function getChapter(body: any) {
       status: chapter.status,
       reading_rank: chapter.reading_rank,
       part_id: chapter.part_id,
-      text: ver.text,
+      text,
     },
     my_annotations: anns ?? [],
   });
+}
+
+// ─── illustrations hydration ─────────────────────────────────────────────
+//
+// Chapter HTML stores illustrations as: <figure data-illustration-id="ID"><img></figure>
+// Resolve each ID to its public URL + caption before returning to the reader.
+
+const ILLUSTRATION_ID_RE = /data-illustration-id="([^"]+)"/g;
+
+function extractIllustrationIds(html: string): string[] {
+  if (!html) return [];
+  const ids = new Set<string>();
+  for (const match of html.matchAll(ILLUSTRATION_ID_RE)) {
+    if (match[1]) ids.add(match[1]);
+  }
+  return Array.from(ids);
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function hydrateChapterIllustrations(html: string): Promise<string> {
+  const ids = extractIllustrationIds(html);
+  if (ids.length === 0) return html;
+  const { data, error } = await sb
+    .from('entity_illustrations')
+    .select('id, storage_path, caption, alt_text')
+    .in('id', ids);
+  if (error || !data) return html;
+  const map = new Map<string, { src: string; alt: string; caption: string | null }>();
+  for (const row of data) {
+    const { data: pub } = sb.storage
+      .from('illustrations')
+      .getPublicUrl(row.storage_path);
+    map.set(row.id, {
+      src: pub.publicUrl,
+      alt: row.alt_text ?? row.caption ?? '',
+      caption: row.caption,
+    });
+  }
+  return html.replace(
+    /<figure\b([^>]*?)data-illustration-id="([^"]+)"([^>]*)>[\s\S]*?<\/figure>/g,
+    (_match: string, beforeId: string, id: string, afterId: string) => {
+      const rec = map.get(id);
+      if (!rec) {
+        return `<figure class="wb-illustration wb-illustration-missing" data-illustration-id="${escapeHtml(
+          id,
+        )}"><figcaption>[illustration unavailable]</figcaption></figure>`;
+      }
+      const attrs = `${beforeId}data-illustration-id="${escapeHtml(id)}"${afterId}`.trim();
+      const captionHtml = rec.caption
+        ? `<figcaption>${escapeHtml(rec.caption)}</figcaption>`
+        : '';
+      return `<figure class="wb-illustration" ${attrs}><img src="${escapeHtml(
+        rec.src,
+      )}" alt="${escapeHtml(rec.alt)}" loading="lazy" />${captionHtml}</figure>`;
+    },
+  );
 }
 
 async function postAnnotation(body: any) {

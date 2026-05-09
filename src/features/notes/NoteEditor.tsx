@@ -1,5 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
+import type { Extensions } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import {
@@ -7,6 +8,7 @@ import {
   setEntityHighlights,
   type EntityHighlightSpec,
 } from './entityHighlightExtension';
+import { IllustrationExtension } from './illustrationExtension';
 
 interface Props {
   initialContent: string;
@@ -17,6 +19,8 @@ interface Props {
   entityHighlights?: EntityHighlightSpec[];
   /** Read-only: disables editing and the typing UI. */
   readOnly?: boolean;
+  /** Enable the illustration block node (chapter editor only). */
+  enableIllustrations?: boolean;
   /**
    * Fires on every doc-changed transaction, no debounce. Lets callers feed the
    * live editor HTML to debounced consumers (e.g. auto-extract) without waiting
@@ -29,10 +33,21 @@ interface Props {
 export interface NoteEditorHandle {
   /** Returns the editor's current HTML synchronously (bypasses debounce). */
   getHTML: () => string;
+  /** Inserts an illustration block at the current cursor position. No-op if
+   * illustrations aren't enabled or the editor is read-only. */
+  insertIllustration: (illustrationId: string, entityId: string) => void;
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandle, Props>(function NoteEditor(
-  { initialContent, onChange, debounceMs = 400, entityHighlights, readOnly = false, onLiveUpdate },
+  {
+    initialContent,
+    onChange,
+    debounceMs = 400,
+    entityHighlights,
+    readOnly = false,
+    enableIllustrations = false,
+    onLiveUpdate,
+  },
   ref,
 ) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,12 +56,21 @@ export const NoteEditor = forwardRef<NoteEditorHandle, Props>(function NoteEdito
   const onLiveUpdateRef = useRef(onLiveUpdate);
   onLiveUpdateRef.current = onLiveUpdate;
 
-  const editor = useEditor({
-    extensions: [
+  const extensions = useMemo<Extensions>(() => {
+    const base: Extensions = [
       StarterKit,
       Placeholder.configure({ placeholder: 'Start writing…' }),
       EntityHighlight.configure({ entities: entityHighlights ?? [] }),
-    ],
+    ];
+    if (enableIllustrations) base.push(IllustrationExtension);
+    return base;
+    // entityHighlights is fed in dynamically via setEntityHighlights below;
+    // we only need to recompute extensions when the illustration toggle flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enableIllustrations]);
+
+  const editor = useEditor({
+    extensions,
     editable: !readOnly,
     content: initialContent || '',
     editorProps: {
@@ -57,10 +81,13 @@ export const NoteEditor = forwardRef<NoteEditorHandle, Props>(function NoteEdito
       },
     },
     onUpdate: ({ editor, transaction }) => {
-      // Skip programmatic updates (initial setContent, decoration refresh, etc.)
-      // We only want to react to user input — gated by isFocused.
-      if (!editor.isFocused) return;
-      // Belt-and-suspenders: also require the transaction to actually change the doc.
+      // docChanged filters out decoration-only / meta transactions
+      // (e.g. setEntityHighlights). The downstream onChange callback is
+      // responsible for ignoring no-op edits via its own equality check —
+      // we don't gate on isFocused here because chained commands like
+      // editor.chain().focus().insertX().run() and NodeView button clicks
+      // can dispatch updates while the editor isn't yet (or no longer) the
+      // focused element.
       if (!transaction.docChanged) return;
       const html = editor.getHTML();
       onLiveUpdateRef.current?.(html);
@@ -69,14 +96,20 @@ export const NoteEditor = forwardRef<NoteEditorHandle, Props>(function NoteEdito
         onChangeRef.current(html);
       }, debounceMs);
     },
-  });
+  }, [extensions]);
 
   useImperativeHandle(
     ref,
     () => ({
       getHTML: () => editor?.getHTML() ?? '',
+      insertIllustration: (illustrationId, entityId) => {
+        if (!editor || !enableIllustrations) return;
+        // The chained .run() dispatches a docChanged transaction, which onUpdate
+        // picks up and pushes through the normal debounced save pipeline.
+        editor.chain().focus().insertIllustration({ illustrationId, entityId }).run();
+      },
     }),
-    [editor],
+    [editor, enableIllustrations],
   );
 
   // Refresh decorations whenever the entities list changes.

@@ -209,12 +209,19 @@ export function PublicReaderChapterScreen() {
     return () => node.removeEventListener('click', onClick);
   }, [annotations, onDeleteAnnotation, confirm]);
 
-  // Compute prev/next chapter ids in reading order.
+  // Compute prev/next chapter ids in reading order. `reading_rank` is unique
+  // only within a part, so we must sort by (part.rank, reading_rank) — sorting
+  // by reading_rank alone interleaves parts and breaks navigation.
   const { prevId, nextId } = useMemo(() => {
     if (!link) return { prevId: null, nextId: null };
-    const sorted = [...link.chapters].sort((a, b) =>
-      a.reading_rank < b.reading_rank ? -1 : a.reading_rank > b.reading_rank ? 1 : 0,
-    );
+    const partRankById = new Map(link.parts.map((p) => [p.id, p.rank]));
+    const sorted = [...link.chapters].sort((a, b) => {
+      const pa = partRankById.get(a.part_id) ?? '';
+      const pb = partRankById.get(b.part_id) ?? '';
+      if (pa !== pb) return pa < pb ? -1 : 1;
+      if (a.reading_rank === b.reading_rank) return 0;
+      return a.reading_rank < b.reading_rank ? -1 : 1;
+    });
     const idx = sorted.findIndex((c) => c.id === chapterId);
     return {
       prevId: idx > 0 ? sorted[idx - 1].id : null,
