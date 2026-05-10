@@ -18,6 +18,7 @@ export function ReaderScreen() {
     const chapters = chaptersQ.data ?? [];
     return books.map((b) => ({
       ...b,
+      preface: chapters.find((c) => c.is_preface && c.book_id === b.id) ?? null,
       parts: parts
         .filter((p) => p.book_id === b.id)
         .map((p) => ({
@@ -51,7 +52,9 @@ export function ReaderScreen() {
       <div className="space-y-6">
         {tree.map((book) => {
           const isCollapsed = collapsed[book.id];
-          const total = book.parts.reduce((acc, p) => acc + p.chapters.length, 0);
+          const total =
+            book.parts.reduce((acc, p) => acc + p.chapters.length, 0) +
+            (book.preface ? 1 : 0);
           return (
             <section key={book.id} className="space-y-3" data-testid="reader-book">
               <button
@@ -70,6 +73,36 @@ export function ReaderScreen() {
 
               {isCollapsed ? null : (
                 <div className="space-y-4 pl-4">
+                  {book.preface ? (
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-fg-muted">
+                        Preface
+                      </h3>
+                      <ul className="space-y-1">
+                        <li>
+                          <Link
+                            to="/worlds/$worldId/read/$chapterId"
+                            params={{ worldId, chapterId: book.preface.id }}
+                            className="flex items-baseline gap-2 rounded px-2 py-1 text-sm hover:bg-bg-subtle"
+                            data-testid="reader-preface-link"
+                          >
+                            <span className="flex-1">
+                              {book.preface.title?.trim() || 'Preface'}
+                            </span>
+                            {book.preface.status === 'draft' ? (
+                              <span className="rounded bg-amber-500/20 px-1 py-0.5 text-[10px] font-mono uppercase text-amber-300">
+                                Draft
+                              </span>
+                            ) : (
+                              <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[10px] font-mono uppercase text-emerald-300">
+                                Published
+                              </span>
+                            )}
+                          </Link>
+                        </li>
+                      </ul>
+                    </div>
+                  ) : null}
                   {book.parts.length === 0 ? (
                     <p className="text-xs italic text-fg-muted">No parts.</p>
                   ) : null}

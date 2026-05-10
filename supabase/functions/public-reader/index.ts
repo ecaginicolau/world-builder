@@ -109,30 +109,32 @@ async function resolveLink(body: any) {
 
   const partIds = (parts ?? []).map((p) => p.id);
   let chapters: any[] = [];
-  if (partIds.length > 0) {
-    let q = sb
-      .from('chapters')
-      .select('id, part_id, title, reading_rank, status, final_version_id')
-      .in('part_id', partIds);
-    if (!link.include_drafts) q = q.eq('status', 'published');
-    const { data: chs, error: chsErr } = await q;
-    if (chsErr) return json({ error: chsErr.message }, 500);
-    // Always exclude chapters with no final_version (empty) from public view.
-    // Sort by (part.rank, reading_rank) — `reading_rank` is unique only within
-    // a part, so ordering by it alone interleaves parts. Build a part-rank
-    // lookup from the already-fetched `parts` list.
-    const partRankById = new Map<string, string>();
-    for (const p of parts ?? []) partRankById.set(p.id, p.rank);
-    chapters = (chs ?? [])
-      .filter((c: any) => !!c.final_version_id)
-      .sort((a: any, b: any) => {
-        const pa = partRankById.get(a.part_id) ?? '';
-        const pb = partRankById.get(b.part_id) ?? '';
-        if (pa !== pb) return pa < pb ? -1 : 1;
-        if (a.reading_rank === b.reading_rank) return 0;
-        return a.reading_rank < b.reading_rank ? -1 : 1;
-      });
-  }
+  // Pull both preface (book_id = link.book_id) and regular chapters (part_id in partIds).
+  let q = sb
+    .from('chapters')
+    .select('id, part_id, book_id, is_preface, title, reading_rank, status, final_version_id')
+    .or(
+      `book_id.eq.${link.book_id}${
+        partIds.length > 0 ? `,part_id.in.(${partIds.join(',')})` : ''
+      }`,
+    );
+  if (!link.include_drafts) q = q.eq('status', 'published');
+  const { data: chs, error: chsErr } = await q;
+  if (chsErr) return json({ error: chsErr.message }, 500);
+  // Always exclude chapters with no final_version (empty) from public view.
+  // Sort: preface first, then by (part.rank, reading_rank).
+  const partRankById = new Map<string, string>();
+  for (const p of parts ?? []) partRankById.set(p.id, p.rank);
+  chapters = (chs ?? [])
+    .filter((c: any) => !!c.final_version_id)
+    .sort((a: any, b: any) => {
+      if (a.is_preface !== b.is_preface) return a.is_preface ? -1 : 1;
+      const pa = a.part_id ? partRankById.get(a.part_id) ?? '' : '';
+      const pb = b.part_id ? partRankById.get(b.part_id) ?? '' : '';
+      if (pa !== pb) return pa < pb ? -1 : 1;
+      if (a.reading_rank === b.reading_rank) return 0;
+      return a.reading_rank < b.reading_rank ? -1 : 1;
+    });
 
   return json({
     link: {
@@ -200,12 +202,16 @@ async function getChapter(body: any) {
   const { data: chapter, error: chErr } = await sb
     .from('chapters')
     .select(
-      'id, title, status, final_version_id, reading_rank, part_id, parts!inner(book_id)',
+      'id, title, status, final_version_id, reading_rank, part_id, book_id, is_preface, chapter_header, chapter_footer, parts(book_id)',
     )
     .eq('id', chapterId)
     .single();
   if (chErr || !chapter) return json({ error: 'chapter_not_found' }, 404);
-  if ((chapter as any).parts?.book_id !== link.book_id) {
+  // Preface chapters carry book_id directly; regular chapters reach the book through their part.
+  const chapterBookId = (chapter as any).is_preface
+    ? (chapter as any).book_id
+    : (chapter as any).parts?.book_id;
+  if (chapterBookId !== link.book_id) {
     return json({ error: 'chapter_not_in_book' }, 403);
   }
   if (!link.include_drafts && chapter.status !== 'published') {
@@ -245,7 +251,10 @@ async function getChapter(body: any) {
       status: chapter.status,
       reading_rank: chapter.reading_rank,
       part_id: chapter.part_id,
+      is_preface: !!(chapter as any).is_preface,
       text,
+      chapter_header: (chapter as any).chapter_header ?? null,
+      chapter_footer: (chapter as any).chapter_footer ?? null,
     },
     my_annotations: anns ?? [],
   });
@@ -333,13 +342,18 @@ async function postAnnotation(body: any) {
   const chapterId = String(body?.chapter_id ?? '');
   if (!chapterId) return json({ error: 'missing_chapter_id' }, 400);
 
-  // Ensure chapter belongs to the link's book.
+  // Ensure chapter belongs to the link's book (preface uses book_id directly).
   const { data: chapter } = await sb
     .from('chapters')
-    .select('id, status, parts!inner(book_id)')
+    .select('id, status, book_id, is_preface, parts(book_id)')
     .eq('id', chapterId)
     .single();
-  if (!chapter || (chapter as any).parts?.book_id !== link.book_id) {
+  const chapterBookId = chapter
+    ? (chapter as any).is_preface
+      ? (chapter as any).book_id
+      : (chapter as any).parts?.book_id
+    : null;
+  if (!chapter || chapterBookId !== link.book_id) {
     return json({ error: 'chapter_not_in_book' }, 403);
   }
   if (!link.include_drafts && chapter.status !== 'published') {

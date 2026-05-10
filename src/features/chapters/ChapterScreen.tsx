@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import {
   useChapter,
@@ -12,7 +12,10 @@ import {
   useUpdateChapterVersionText,
 } from '@/lib/queries/chapterVersions';
 import { useBooks } from '@/lib/queries/books';
+import { useBookEditions } from '@/lib/queries/bookEditions';
 import { usePartsByWorld } from '@/lib/queries/parts';
+import { fetchVersionsByIds } from '@/lib/queries/chapterVersions';
+import { PdfPreviewModal } from './PdfPreviewModal';
 import { useWorld } from '@/lib/queries/worlds';
 import { useEntities } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
@@ -52,7 +55,9 @@ import type { EntityVersion, FieldDef } from '@/features/entities/types';
 import { useConfirm } from '@/lib/useConfirm';
 import { ReaderFeedbackPanel } from './ReaderFeedbackPanel';
 import { InsertIllustrationButton } from './InsertIllustrationButton';
+import { IllustrationPicker } from './IllustrationPicker';
 import { illustrationSequence } from '@/lib/illustrationHydration';
+import { useIllustration, publicUrlFor } from '@/lib/queries/illustrations';
 import { useReaderAnnotationsByChapter } from '@/lib/queries/readerAnnotations';
 import { findAnchor } from '@/features/publicReader/anchorAnnotations';
 import { htmlToPlaintext } from '@/features/publicReader/renderAnnotatedHtml';
@@ -70,6 +75,15 @@ export function ChapterScreen() {
   const worldChaptersQ = useChaptersByWorld(worldId);
   const booksQ = useBooks(worldId);
   const partsQ = usePartsByWorld(worldId);
+  // Owner book of this chapter (via part for regular chapters, direct for
+  // prefaces). Used by the chapter-scoped PDF preview to pick a default
+  // edition. Computed lazily — `bookId` may be undefined briefly while parts
+  // are loading.
+  const ownerPart = partsQ.data?.find((p) => p.id === chapterQ.data?.part_id);
+  const ownerBookId = chapterQ.data?.is_preface
+    ? chapterQ.data.book_id
+    : ownerPart?.book_id;
+  const editionsQ = useBookEditions(ownerBookId ?? '');
   const worldQ = useWorld(worldId);
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
@@ -93,6 +107,7 @@ export function ChapterScreen() {
   const [upscaleError, setUpscaleError] = useState<string | null>(null);
   const [upscaling, setUpscaling] = useState(false);
   const [proposeOpen, setProposeOpen] = useState(false);
+  const [previewPdfOpen, setPreviewPdfOpen] = useState(false);
   const [summarizing, setSummarizing] = useState<SummaryLength | null>(null);
   const [summarizeError, setSummarizeError] = useState<string | null>(null);
   const [focusedAnnotationId, setFocusedAnnotationId] = useState<string | null>(null);
@@ -117,19 +132,26 @@ export function ChapterScreen() {
     [versions, selectedVersionId, finalVersion],
   );
 
-  // Reading-order list of chapters across the whole world (book.rank → part.rank → reading_rank).
+  // Reading-order list of chapters across the whole world.
+  // Within a book: preface (if any) → part1 chapters → part2 chapters → ...
+  // Across books: ordered by book.rank.
   const orderedChapters = useMemo(() => {
     const chapters = worldChaptersQ.data ?? [];
     const partsById = new Map((partsQ.data ?? []).map((p) => [p.id, p]));
     const bookRankById = new Map((booksQ.data ?? []).map((b) => [b.id, b.rank]));
+    function bookRankFor(c: typeof chapters[number]): string {
+      if (c.is_preface && c.book_id) return bookRankById.get(c.book_id) ?? '';
+      const p = c.part_id ? partsById.get(c.part_id) : null;
+      return p ? bookRankById.get(p.book_id) ?? '' : '';
+    }
     return [...chapters].sort((a, b) => {
-      const pa = partsById.get(a.part_id);
-      const pb = partsById.get(b.part_id);
-      const baRank = pa ? bookRankById.get(pa.book_id) ?? '' : '';
-      const bbRank = pb ? bookRankById.get(pb.book_id) ?? '' : '';
+      const baRank = bookRankFor(a);
+      const bbRank = bookRankFor(b);
       if (baRank !== bbRank) return baRank < bbRank ? -1 : 1;
-      const paRank = pa?.rank ?? '';
-      const pbRank = pb?.rank ?? '';
+      // Within a book: preface always first.
+      if (a.is_preface !== b.is_preface) return a.is_preface ? -1 : 1;
+      const paRank = a.part_id ? partsById.get(a.part_id)?.rank ?? '' : '';
+      const pbRank = b.part_id ? partsById.get(b.part_id)?.rank ?? '' : '';
       if (paRank !== pbRank) return paRank < pbRank ? -1 : 1;
       if (a.reading_rank !== b.reading_rank) return a.reading_rank < b.reading_rank ? -1 : 1;
       return 0;
@@ -141,6 +163,24 @@ export function ChapterScreen() {
     currentIndex >= 0 && currentIndex < orderedChapters.length - 1
       ? orderedChapters[currentIndex + 1]
       : null;
+
+  // 1-based chapter number within the current book — prefaces are NOT numbered.
+  const chapterNumberInBook = useMemo(() => {
+    const ch = chapterQ.data;
+    if (!ch || ch.is_preface) return null;
+    const parts = partsQ.data ?? [];
+    const partsById = new Map(parts.map((p) => [p.id, p]));
+    const currentPart = ch.part_id ? partsById.get(ch.part_id) : null;
+    if (!currentPart) return null;
+    const sameBookIds = new Set(
+      parts.filter((p) => p.book_id === currentPart.book_id).map((p) => p.id),
+    );
+    const inBook = orderedChapters.filter(
+      (c) => !c.is_preface && c.part_id && sameBookIds.has(c.part_id),
+    );
+    const idx = inBook.findIndex((c) => c.id === chapterId);
+    return idx >= 0 ? idx + 1 : null;
+  }, [orderedChapters, partsQ.data, chapterQ.data, chapterId]);
 
   // Derived chronological rank for every chapter in the world (= min linked event chrono).
   const chapterChrono = useMemo(
@@ -411,11 +451,15 @@ export function ChapterScreen() {
 
   async function onDelete() {
     if (!chapterQ.data) return;
-    const ok = await confirm({ title: 'Delete this chapter?', danger: true });
+    const ok = await confirm({
+      title: chapterQ.data.is_preface ? 'Delete this preface?' : 'Delete this chapter?',
+      danger: true,
+    });
     if (!ok) return;
     await deleteChapter.mutateAsync({
       id: chapterId,
       partId: chapterQ.data.part_id,
+      bookId: chapterQ.data.book_id,
       worldId,
     });
     void navigate({ to: '/worlds/$worldId/books', params: { worldId } });
@@ -436,7 +480,8 @@ export function ChapterScreen() {
     selectedVersion.origin === 'draft' || selectedVersion.origin === 'manual_edit';
   const isOnManualEdit = selectedVersion.origin === 'manual_edit';
   const isPublished = chapterQ.data.status === 'published';
-  const noEventsLinked = (chapterEventsQ.data ?? []).length === 0;
+  const isPreface = chapterQ.data.is_preface;
+  const noEventsLinked = !isPreface && (chapterEventsQ.data ?? []).length === 0;
   const lastAnalyzedAt = chapterQ.data.last_analyzed_at;
   const finalUpdatedAt = finalVersion?.updated_at ?? finalVersion?.created_at;
   const proseChangedSinceAnalysis =
@@ -456,6 +501,23 @@ export function ChapterScreen() {
       id: chapterQ.data.id,
       status: isPublished ? 'draft' : 'published',
     });
+  }
+
+  function onFramingDebouncedChange(field: 'chapterHeader' | 'chapterFooter', html: string) {
+    if (isPublished) return;
+    const current =
+      field === 'chapterHeader'
+        ? chapterQ.data?.chapter_header ?? null
+        : chapterQ.data?.chapter_footer ?? null;
+    const next = htmlToPlainText(html).trim() === '' ? null : html;
+    if (next === current) return;
+    updateChapter.mutate({ id: chapterId, [field]: next } as Parameters<typeof updateChapter.mutate>[0]);
+  }
+  function onHeaderDebouncedChange(html: string) {
+    onFramingDebouncedChange('chapterHeader', html);
+  }
+  function onFooterDebouncedChange(html: string) {
+    onFramingDebouncedChange('chapterFooter', html);
   }
 
   function onEditorDebouncedChange(html: string) {
@@ -513,6 +575,21 @@ export function ChapterScreen() {
           >
             ← Books
           </Link>
+          {chapterQ.data.is_preface ? (
+            <span
+              className="text-sm text-fg-muted"
+              data-testid="chapter-preface-label"
+            >
+              Preface
+            </span>
+          ) : chapterNumberInBook !== null ? (
+            <span
+              className="text-sm text-fg-muted"
+              data-testid="chapter-number"
+            >
+              Chapter {chapterNumberInBook}
+            </span>
+          ) : null}
           <div className="flex items-center gap-1">
             {prevChapter ? (
               <Link
@@ -599,15 +676,26 @@ export function ChapterScreen() {
           >
             {isPublished ? 'Unpublish' : 'Publish'}
           </button>
+          {isPreface ? null : (
+            <button
+              type="button"
+              onClick={() => setProposeOpen(true)}
+              disabled={isPublished}
+              className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel disabled:cursor-not-allowed disabled:opacity-50"
+              title={isPublished ? 'Unpublish to propose canon' : undefined}
+              data-testid="propose-canon"
+            >
+              Propose canon
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => setProposeOpen(true)}
-            disabled={isPublished}
-            className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel disabled:cursor-not-allowed disabled:opacity-50"
-            title={isPublished ? 'Unpublish to propose canon' : undefined}
-            data-testid="propose-canon"
+            onClick={() => setPreviewPdfOpen(true)}
+            className="bg-bg-subtle px-3 py-1 text-sm hover:bg-bg-panel"
+            title="Render this chapter (with its neighbours for context) as PDF"
+            data-testid="preview-chapter-pdf"
           >
-            Propose canon
+            Preview PDF
           </button>
           <button
             type="button"
@@ -632,28 +720,68 @@ export function ChapterScreen() {
 
       <div className="grid min-h-0 flex-1 gap-4 grid-cols-1 md:grid-cols-[260px_1fr_540px]">
         <aside className="order-2 flex min-h-0 flex-col gap-4 overflow-y-auto md:order-1">
-          {!isPublished ? (
-            <InsertIllustrationButton
-              worldId={worldId}
-              chapterId={chapterId}
-              disabled={isPublished}
-              onPick={(illustrationId, entityId) =>
-                editorRef.current?.insertIllustration(illustrationId, entityId)
-              }
-            />
-          ) : null}
-          <EventsCoveredPanel worldId={worldId} chapterId={chapterId} />
-          <LinkedEntitiesPanel worldId={worldId} source={linkSource} />
-          <DetectedEntitiesPanel
+          {/* Layout-only controls stay available even when published. They
+              don't change the canonical text — just framing/illustrations. */}
+          <InsertIllustrationButton
             worldId={worldId}
-            candidates={extract.candidates}
-            status={extract.status}
-            error={extract.error}
-            source={linkSource}
+            chapterId={chapterId}
+            onPick={(illustrationId, entityId) =>
+              editorRef.current?.insertIllustration(illustrationId, entityId)
+            }
           />
+          <button
+            type="button"
+            onClick={() => editorRef.current?.insertPageBreak()}
+            className="rounded border border-border px-3 py-1.5 text-xs text-fg-muted hover:border-fg-muted hover:text-fg"
+            data-testid="insert-page-break-btn"
+            title="Insert a manual page break (PDF export only)"
+          >
+            + Page break
+          </button>
+          <FullPagePicker
+            worldId={worldId}
+            chapterId={chapterId}
+            onPick={(illId, entId) =>
+              editorRef.current?.insertFullPageIllustration(illId, entId)
+            }
+          />
+          <OpeningIllustrationControl
+            chapterId={chapterId}
+            worldId={worldId}
+            openingIllustrationId={chapterQ.data?.opening_illustration_id ?? null}
+            disabled={false}
+          />
+          {isPreface ? (
+            <p className="px-2 text-xs italic text-fg-muted">
+              Preface — not on the canonical timeline. No events, no entity tagging.
+            </p>
+          ) : (
+            <>
+              <EventsCoveredPanel worldId={worldId} chapterId={chapterId} />
+              <LinkedEntitiesPanel worldId={worldId} source={linkSource} />
+              <DetectedEntitiesPanel
+                worldId={worldId}
+                candidates={extract.candidates}
+                status={extract.status}
+                error={extract.error}
+                source={linkSource}
+              />
+            </>
+          )}
         </aside>
 
-        <div ref={editorContainerRef} className="order-1 relative min-h-0 overflow-y-auto md:order-2">
+        <div ref={editorContainerRef} className="order-1 relative min-h-0 overflow-y-auto md:order-2 flex flex-col gap-2">
+          {/* Chapter header / footer are framing (epigraphs, monolog),
+              stored on the chapter row, not in chapter_versions. Always
+              editable — published-status is about narrative content only. */}
+          <NoteEditor
+            key={`header-${chapterId}`}
+            initialContent={chapterQ.data.chapter_header ?? ''}
+            onChange={onHeaderDebouncedChange}
+            placeholder="Optional header (epigraph, accroche…) — empty = nothing rendered"
+            minHeightClass="min-h-[3.5rem]"
+            testId="chapter-header-editor"
+          />
           <NoteEditor
             ref={editorRef}
             key={selectedVersion.id}
@@ -663,6 +791,15 @@ export function ChapterScreen() {
             entityHighlights={entityHighlights}
             readOnly={isPublished}
             enableIllustrations
+            enablePageBreaks
+          />
+          <NoteEditor
+            key={`footer-${chapterId}`}
+            initialContent={chapterQ.data.chapter_footer ?? ''}
+            onChange={onFooterDebouncedChange}
+            placeholder="Optional footer (closing line, tag…) — empty = nothing rendered"
+            minHeightClass="min-h-[3.5rem]"
+            testId="chapter-footer-editor"
           />
           {feedbackQ.data && feedbackQ.data.length > 0 && finalVersion ? (
             <FeedbackMarginDots
@@ -800,7 +937,9 @@ export function ChapterScreen() {
                   <ReaderFeedbackPanel
                     chapterId={chapterId}
                     bookId={
-                      partsQ.data.find((p) => p.id === chapterQ.data!.part_id)?.book_id ?? ''
+                      chapterQ.data.book_id ??
+                      partsQ.data.find((p) => p.id === chapterQ.data!.part_id)?.book_id ??
+                      ''
                     }
                     focusAnnotationId={focusedAnnotationId}
                     onFocus={(id) => setFocusedAnnotationId(id)}
@@ -821,7 +960,121 @@ export function ChapterScreen() {
         chapterId={chapterId}
         chapterText={finalVersion?.text ?? ''}
       />
+
+      {previewPdfOpen ? (
+        <ChapterPdfPreview
+          chapter={chapterQ.data}
+          ownerPart={ownerPart}
+          edition={editionsQ.data?.[0]}
+          chapterNumber={chapterNumberInBook}
+          onClose={() => setPreviewPdfOpen(false)}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function ChapterPdfPreview({
+  chapter,
+  ownerPart,
+  edition,
+  chapterNumber,
+  onClose,
+}: {
+  chapter: import('./types').Chapter | undefined;
+  ownerPart: import('./types').Part | undefined;
+  edition: import('./types').BookEdition | undefined;
+  chapterNumber: number | null;
+  onClose: () => void;
+}) {
+  // Stabilize the build callback so PdfPreviewModal's effect doesn't cancel
+  // and restart on every parent re-render. Recomputes only when the chapter
+  // (incl. its frontispiece / framing / final_version_id), the owning part,
+  // or the edition actually change. Without this, an unrelated parent re-
+  // render (e.g. a sibling query refetch) would invalidate the in-flight PDF
+  // build and the user could see a stale or wrong-chapter blob lingering.
+  const buildBlob = useCallback(async () => {
+    if (!chapter || !edition) {
+      throw new Error('Chapter or edition not ready yet');
+    }
+    const finalIds = chapter.final_version_id ? [chapter.final_version_id] : [];
+    const versions = await fetchVersionsByIds(finalIds);
+    const versionText = new Map(versions.map((v) => [v.id, v.text]));
+    const exportData = {
+      title: chapter.title ?? 'Chapter preview',
+      description: null,
+      preface: null,
+      // Skip the cover-like title page — the user is iterating on layout,
+      // not the book cover. Single part means part page is auto-omitted.
+      omitTitlePage: true,
+      parts: [
+        {
+          id: ownerPart?.id ?? 'preview',
+          title: ownerPart?.title ?? null,
+          rank: ownerPart?.rank ?? 'a',
+          chapters: [
+            {
+              id: chapter.id,
+              title: chapter.title,
+              reading_rank: chapter.reading_rank,
+              text: chapter.final_version_id
+                ? (versionText.get(chapter.final_version_id) ?? '')
+                : '',
+              chapter_header: chapter.chapter_header,
+              chapter_footer: chapter.chapter_footer,
+              opening_illustration_id: chapter.opening_illustration_id,
+              chapter_number_override: chapterNumber ?? null,
+            },
+          ],
+        },
+      ],
+    };
+    const { buildBookPdfBlob } = await import('./bookPdfExport');
+    return buildBookPdfBlob(exportData, edition);
+  }, [chapter, ownerPart, edition, chapterNumber]);
+
+  if (!chapter) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        onClick={onClose}
+      >
+        <div className="rounded-md bg-bg-panel p-6 text-sm text-fg-muted">
+          Loading chapter…
+        </div>
+      </div>
+    );
+  }
+  if (!edition) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        onClick={onClose}
+      >
+        <div className="max-w-md rounded-md bg-bg-panel p-6 text-sm text-fg-muted">
+          <p className="mb-3">
+            No print edition exists for this book yet. Create one on the book
+            detail screen first (Print editions panel → + New edition), then
+            come back here to preview.
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border border-border px-3 py-1 text-xs hover:border-fg-muted hover:text-fg"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <PdfPreviewModal
+      title={`${chapter.title ?? '(untitled)'} — ${edition.name}`}
+      onClose={onClose}
+      buildBlob={buildBlob}
+    />
   );
 }
 
@@ -904,7 +1157,7 @@ function FeedbackMarginDots({ containerRef, annotations, chapterText, focusedId,
 
     const compute = () => {
       const plain = htmlToPlaintext(chapterText);
-      const proseEl = container.querySelector('.ProseMirror') as HTMLElement | null;
+      const proseEl = container.querySelector('.ProseMirror[data-testid="note-editor"]') as HTMLElement | null;
       if (!proseEl) {
         setDots([]);
         return;
@@ -994,4 +1247,147 @@ function createDomRange(root: HTMLElement, start: number, end: number): Range | 
   } catch {
     return null;
   }
+}
+
+// Inline helper: a button that opens the illustration picker and forwards the
+// pick to a callback. Lives in this file (small, single-use, captures the
+// chapter context already in scope).
+function FullPagePicker({
+  worldId,
+  chapterId,
+  onPick,
+}: {
+  worldId: string;
+  chapterId: string;
+  onPick: (illustrationId: string, entityId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded border border-border px-3 py-1.5 text-xs text-fg-muted hover:border-fg-muted hover:text-fg"
+        data-testid="insert-full-page-illustration-btn"
+        title="Insert a full-page illustration (its own dedicated page in the PDF)"
+      >
+        + Full-page illustration
+      </button>
+      {open ? (
+        <IllustrationPicker
+          worldId={worldId}
+          chapterId={chapterId}
+          title="Pick a full-page illustration"
+          onClose={() => setOpen(false)}
+          onPick={(illId, entId) => {
+            onPick(illId, entId);
+            setOpen(false);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Sidebar control to set / preview / clear the chapter's opening illustration
+ * (frontispiece). When set, the PDF emits a dedicated full-page plate just
+ * before the chapter title page; the WYSIWYG preview shows it on the verso of
+ * the spread. Read-only when chapter is published.
+ */
+function OpeningIllustrationControl({
+  chapterId,
+  worldId,
+  openingIllustrationId,
+  disabled,
+}: {
+  chapterId: string;
+  worldId: string;
+  openingIllustrationId: string | null;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const updateChapter = useUpdateChapter();
+  const { data: ill } = useIllustration(openingIllustrationId);
+
+  function setIt(id: string | null) {
+    void updateChapter.mutateAsync({
+      id: chapterId,
+      openingIllustrationId: id,
+    });
+  }
+
+  return (
+    <section
+      className="flex flex-col gap-2 rounded border border-border bg-bg-panel p-2"
+      data-testid="opening-illustration-panel"
+    >
+      <h3 className="text-[10px] font-medium uppercase tracking-wider text-fg-muted">
+        Opening illustration (frontispiece)
+      </h3>
+      {openingIllustrationId && ill ? (
+        <div className="flex flex-col gap-1">
+          <img
+            src={publicUrlFor(ill.storage_path)}
+            alt={ill.alt_text ?? ill.caption ?? ''}
+            className="max-h-32 w-full rounded border border-border object-contain"
+          />
+          {ill.caption ? (
+            <p className="line-clamp-2 text-[10px] italic text-fg-muted">
+              {ill.caption}
+            </p>
+          ) : null}
+          {!disabled ? (
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setOpen(true)}
+                className="flex-1 rounded border border-border px-2 py-1 text-[10px] text-fg-muted hover:border-fg-muted hover:text-fg"
+                data-testid="opening-illustration-replace"
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                onClick={() => setIt(null)}
+                className="rounded border border-border px-2 py-1 text-[10px] text-fg-muted hover:text-red-400"
+                data-testid="opening-illustration-clear"
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : openingIllustrationId && !ill ? (
+        <p className="text-[10px] italic text-fg-muted">Loading…</p>
+      ) : !disabled ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded border border-dashed border-border px-2 py-2 text-[10px] text-fg-muted hover:border-fg-muted hover:text-fg"
+          data-testid="opening-illustration-set"
+        >
+          + Set opening illustration
+        </button>
+      ) : (
+        <p className="text-[10px] italic text-fg-muted">No frontispiece.</p>
+      )}
+      <p className="text-[9px] text-fg-muted">
+        Renders as a full-page plate before the chapter title in the PDF. Verso
+        parity is not enforced — it lands wherever pagination puts it.
+      </p>
+      {open ? (
+        <IllustrationPicker
+          worldId={worldId}
+          chapterId={chapterId}
+          title="Pick the chapter opening illustration"
+          onClose={() => setOpen(false)}
+          onPick={(illId) => {
+            setIt(illId);
+            setOpen(false);
+          }}
+        />
+      ) : null}
+    </section>
+  );
 }

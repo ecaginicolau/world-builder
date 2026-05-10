@@ -218,6 +218,74 @@ export function registerChaptersWriteTools(
   );
 
   server.registerTool(
+    "update_chapter_framing",
+    {
+      title: "Update chapter framing (header / footer)",
+      description:
+        "Set or clear the optional `chapter_header` and/or `chapter_footer` rich-text framing rendered above/below the chapter content in reader views. " +
+        "Not versioned, not searched, not part of the upscale flow — pure stylistic flavor (epigraphs, accounting lines, etc.). " +
+        "Pass plain text (newlines = paragraph breaks) or Tiptap HTML — plain text is auto-wrapped server-side. " +
+        "Omit a field to leave it untouched. Pass `null` or an empty string to clear it (renders nothing). " +
+        "This tool exists separately from update_chapter so agents can edit framing without re-sending the full chapter content.",
+      inputSchema: {
+        chapter_id: z.string().uuid(),
+        chapter_header: z
+          .string()
+          .nullish()
+          .describe(
+            "Rich-text framing rendered above the chapter. Plain text or Tiptap HTML. null/empty clears.",
+          ),
+        chapter_footer: z
+          .string()
+          .nullish()
+          .describe(
+            "Rich-text framing rendered below the chapter. Plain text or Tiptap HTML. null/empty clears.",
+          ),
+      },
+    },
+    async ({ chapter_id, chapter_header, chapter_footer }) => {
+      const patch: Record<string, unknown> = {};
+      if (chapter_header !== undefined) {
+        patch.chapter_header =
+          chapter_header == null || chapter_header === ""
+            ? null
+            : plainTextToHtml(chapter_header);
+      }
+      if (chapter_footer !== undefined) {
+        patch.chapter_footer =
+          chapter_footer == null || chapter_footer === ""
+            ? null
+            : plainTextToHtml(chapter_footer);
+      }
+      if (Object.keys(patch).length === 0) return fail("No fields to update");
+      const r = await ctx.supabase
+        .from("chapters")
+        .update(patch)
+        .eq("id", chapter_id)
+        .eq("owner_id", ctx.ownerId)
+        .select("*")
+        .maybeSingle();
+      if (r.error) return fail(r.error.message);
+      if (!r.data) return fail("Chapter not found");
+      await ctx.logAction({
+        worldId: r.data.world_id,
+        actionKind: "update_chapter_framing",
+        targetKind: "chapter",
+        targetId: chapter_id,
+        payload: {
+          title: r.data.title,
+          fields: Object.keys(patch),
+        },
+      });
+      return ok({
+        id: r.data.id,
+        chapter_header: r.data.chapter_header,
+        chapter_footer: r.data.chapter_footer,
+      });
+    },
+  );
+
+  server.registerTool(
     "delete_chapter",
     {
       title: "Delete chapter",

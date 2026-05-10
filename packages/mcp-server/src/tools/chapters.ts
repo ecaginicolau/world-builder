@@ -81,7 +81,8 @@ export function registerChaptersReadTools(
     {
       title: "Get chapter",
       description:
-        "Fetch a chapter with its current final version text, linked events (ordered by narrative_rank), and pinned participants.",
+        "Fetch a chapter with its current final version text, linked events (ordered by narrative_rank), and pinned participants. " +
+        "Includes optional `chapter_header` and `chapter_footer` (rich-text HTML rendered above/below the chapter in reader views — null/empty = none).",
       inputSchema: { chapter_id: z.string().uuid() },
     },
     async ({ chapter_id }) => {

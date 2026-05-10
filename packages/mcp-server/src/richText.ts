@@ -2,11 +2,11 @@
 // `\n` line breaks; without conversion, the whole text collapses into a single
 // paragraph in the editor.
 //
-// Heuristic: if the input already looks like HTML (leading `<…>` block-level
-// tag), pass it through. Otherwise split on blank lines for paragraphs and
-// convert single newlines to `<br>` within a paragraph.
+// Heuristic: if the input already looks like HTML (leading `<tag…>`), pass it
+// through. Otherwise split on blank lines for paragraphs and convert single
+// newlines to `<br>` within a paragraph.
 
-const HTML_LEADING = /^\s*<(p|div|h[1-6]|ul|ol|blockquote|pre)\b/i;
+const HTML_LEADING = /^\s*<[a-z][a-z0-9]*\b/i;
 
 function escapeHtml(s: string): string {
   return s

@@ -21,10 +21,12 @@ export interface ResolvedPart {
 
 export interface ResolvedChapter {
   id: string;
-  part_id: string;
+  /** Null for the book's preface chapter. */
+  part_id: string | null;
   title: string | null;
   reading_rank: string;
   status: 'draft' | 'published';
+  is_preface: boolean;
   final_version_id: string;
 }
 
@@ -57,8 +59,11 @@ export interface ReaderChapterPayload {
   title: string | null;
   status: 'draft' | 'published';
   reading_rank: string;
-  part_id: string;
+  part_id: string | null;
+  is_preface: boolean;
   text: string;
+  chapter_header: string | null;
+  chapter_footer: string | null;
 }
 
 export type ReaderTheme = 'dark' | 'light';

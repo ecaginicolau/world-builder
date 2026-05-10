@@ -216,8 +216,10 @@ export function PublicReaderChapterScreen() {
     if (!link) return { prevId: null, nextId: null };
     const partRankById = new Map(link.parts.map((p) => [p.id, p.rank]));
     const sorted = [...link.chapters].sort((a, b) => {
-      const pa = partRankById.get(a.part_id) ?? '';
-      const pb = partRankById.get(b.part_id) ?? '';
+      // Preface always first within the book.
+      if (a.is_preface !== b.is_preface) return a.is_preface ? -1 : 1;
+      const pa = a.part_id ? partRankById.get(a.part_id) ?? '' : '';
+      const pb = b.part_id ? partRankById.get(b.part_id) ?? '' : '';
       if (pa !== pb) return pa < pb ? -1 : 1;
       if (a.reading_rank === b.reading_rank) return 0;
       return a.reading_rank < b.reading_rank ? -1 : 1;
@@ -302,18 +304,33 @@ export function PublicReaderChapterScreen() {
               margin: '0 0 8px',
             }}
           >
-            {chapter.title?.trim() || '(untitled chapter)'}
+            {chapter.title?.trim() ||
+              (chapter.is_preface ? 'Preface' : '(untitled chapter)')}
           </h1>
           {chapter.status === 'draft' ? (
             <span className="reader-draft-badge">DRAFT</span>
           ) : null}
         </div>
+        {chapter.chapter_header && chapter.chapter_header.trim() ? (
+          <div
+            className="reader-prose"
+            dangerouslySetInnerHTML={{ __html: chapter.chapter_header }}
+            data-testid="reader-chapter-header"
+          />
+        ) : null}
         <div
           ref={bodyRef}
           className="reader-prose"
           dangerouslySetInnerHTML={{ __html: rendered.html }}
           data-testid="reader-chapter-body"
         />
+        {chapter.chapter_footer && chapter.chapter_footer.trim() ? (
+          <div
+            className="reader-prose"
+            dangerouslySetInnerHTML={{ __html: chapter.chapter_footer }}
+            data-testid="reader-chapter-footer"
+          />
+        ) : null}
         <div className="reader-prose" style={{ marginTop: 32 }}>
           <ChapterNav
             token={token}

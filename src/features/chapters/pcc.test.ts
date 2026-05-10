@@ -7,6 +7,8 @@ function chapter(over: Partial<Chapter> & { id: string }): Chapter {
   return {
     id: over.id,
     part_id: 'p1',
+    book_id: null,
+    is_preface: false,
     world_id: 'w1',
     owner_id: 'o1',
     reading_rank: over.reading_rank ?? '0',
@@ -15,6 +17,9 @@ function chapter(over: Partial<Chapter> & { id: string }): Chapter {
     summary_s: over.summary_s ?? null,
     summary_m: over.summary_m ?? null,
     summary_l: over.summary_l ?? null,
+    chapter_header: over.chapter_header ?? null,
+    chapter_footer: over.chapter_footer ?? null,
+    opening_illustration_id: over.opening_illustration_id ?? null,
     status: over.status ?? 'draft',
     published_at: null,
     last_analyzed_at: null,

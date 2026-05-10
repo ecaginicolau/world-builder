@@ -18,6 +18,7 @@ export type PdfBlock =
   | { kind: 'list_item'; ordered: boolean; index: number; runs: TextRun[] }
   | { kind: 'blockquote'; runs: TextRun[] }
   | { kind: 'scene_break' }
+  | { kind: 'page_break'; illustrationId?: string; entityId?: string }
   | {
       kind: 'illustration';
       illustrationId: string;
@@ -56,7 +57,15 @@ export function parseHtmlToBlocks(
     const el = node as Element;
     const tag = el.tagName.toLowerCase();
 
-    if (tag === 'figure' && el.hasAttribute('data-illustration-id')) {
+    if (tag === 'div' && el.hasAttribute('data-page-break')) {
+      const illId = el.getAttribute('data-illustration-id');
+      const entId = el.getAttribute('data-entity-id');
+      blocks.push({
+        kind: 'page_break',
+        ...(illId ? { illustrationId: illId } : {}),
+        ...(entId ? { entityId: entId } : {}),
+      });
+    } else if (tag === 'figure' && el.hasAttribute('data-illustration-id')) {
       const id = el.getAttribute('data-illustration-id') ?? '';
       const rec = illustrations?.get(id);
       blocks.push({

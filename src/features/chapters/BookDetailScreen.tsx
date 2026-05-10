@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams, useNavigate } from '@tanstack/react-router';
 import { useBook, useUpdateBook } from '@/lib/queries/books';
 import { useCreatePart, useDeletePart, usePartsByBook } from '@/lib/queries/parts';
-import { useChaptersByPart, useChaptersByWorld, useCreateChapter, useDeleteChapter, useUpdateChapter } from '@/lib/queries/chapters';
+import { useChaptersByPart, useChaptersByWorld, useCreateChapter, useCreatePreface, useDeleteChapter, usePrefaceByBook, useUpdateChapter } from '@/lib/queries/chapters';
 import { useChapterWordCountsByWorld } from '@/lib/queries/chapterWordCounts';
 import { fetchVersionsByIds } from '@/lib/queries/chapterVersions';
 import { useSession } from '@/features/auth/session';
@@ -10,13 +10,17 @@ import { useConfirm } from '@/lib/useConfirm';
 import { rankForMoveDown, rankForMoveUp } from '@/features/timeline/timelineItems';
 import { formatWordCount } from '@/lib/wordCount';
 import { SharePanel } from './SharePanel';
-import type { Part } from './types';
+import { BookEditionsPanel } from './BookEditionsPanel';
+import { PdfPreviewModal } from './PdfPreviewModal';
+import type { BookEdition, Part } from './types';
 
 export function BookDetailScreen() {
   const { worldId, bookId } = useParams({ from: '/worlds/$worldId/books/$bookId' });
+  const navigate = useNavigate();
   const session = useSession();
   const bookQ = useBook(bookId);
   const partsQ = usePartsByBook(bookId);
+  const prefaceQ = usePrefaceByBook(bookId);
   const wordCountsQ = useChapterWordCountsByWorld(worldId);
   const worldChaptersQ = useChaptersByWorld(worldId);
   const wordCounts = wordCountsQ.data;
@@ -26,18 +30,22 @@ export function BookDetailScreen() {
     const partIds = new Set(partsQ.data.map((p) => p.id));
     let total = 0;
     for (const c of worldChaptersQ.data) {
-      if (partIds.has(c.part_id)) total += wordCounts.get(c.id) ?? 0;
+      if (c.part_id && partIds.has(c.part_id)) total += wordCounts.get(c.id) ?? 0;
+      if (c.is_preface && c.book_id === bookId) total += wordCounts.get(c.id) ?? 0;
     }
     return total;
-  }, [wordCounts, worldChaptersQ.data, partsQ.data]);
+  }, [wordCounts, worldChaptersQ.data, partsQ.data, bookId]);
   const createPart = useCreatePart();
   const deletePart = useDeletePart();
+  const createPreface = useCreatePreface();
+  const deleteChapter = useDeleteChapter();
   const updateBook = useUpdateBook();
   const confirm = useConfirm();
   const [partTitle, setPartTitle] = useState('');
   const [exporting, setExporting] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [descriptionDraft, setDescriptionDraft] = useState('');
+  const [previewEdition, setPreviewEdition] = useState<BookEdition | null>(null);
 
   useEffect(() => {
     if (bookQ.data) {
@@ -66,48 +74,115 @@ export function BookDetailScreen() {
     updateBook.mutate({ id: book.id, description: trimmed === '' ? null : trimmed });
   }
 
-  async function onExportPdf() {
+  /**
+   * Resolves the full export payload for the book: preface (if any), parts in
+   * rank order, chapters with their final-version text + framing + frontispiece.
+   * Shared by Export PDF (download) and Preview PDF (in-app modal).
+   */
+  async function buildExportData() {
     const parts = partsQ.data;
     const allChapters = worldChaptersQ.data;
     const book = bookQ.data;
-    if (!parts || !allChapters || !book) return;
+    if (!parts || !allChapters || !book) return null;
 
+    const partIds = new Set(parts.map((p) => p.id));
+    const sortedParts = parts.slice().sort((a, b) => (a.rank < b.rank ? -1 : 1));
+
+    const preface = allChapters.find(
+      (c) => c.is_preface && c.book_id === book.id,
+    ) ?? null;
+
+    const finalVersionIds = allChapters
+      .filter(
+        (c) =>
+          ((c.part_id && partIds.has(c.part_id)) ||
+            (c.is_preface && c.book_id === book.id)) &&
+          c.final_version_id,
+      )
+      .map((c) => c.final_version_id as string);
+
+    const versions = await fetchVersionsByIds(finalVersionIds);
+    const versionText = new Map(versions.map((v) => [v.id, v.text]));
+
+    return {
+      title: book.title,
+      description: book.description,
+      preface: preface
+        ? {
+            id: preface.id,
+            title: preface.title,
+            text: preface.final_version_id
+              ? (versionText.get(preface.final_version_id) ?? '')
+              : '',
+            chapter_header: preface.chapter_header,
+            chapter_footer: preface.chapter_footer,
+          }
+        : null,
+      parts: sortedParts.map((p) => ({
+        id: p.id,
+        title: p.title,
+        rank: p.rank,
+        chapters: allChapters
+          .filter((c) => c.part_id === p.id)
+          .sort((a, b) => (a.reading_rank < b.reading_rank ? -1 : 1))
+          .map((c) => ({
+            id: c.id,
+            title: c.title,
+            reading_rank: c.reading_rank,
+            text: c.final_version_id ? (versionText.get(c.final_version_id) ?? '') : '',
+            chapter_header: c.chapter_header,
+            chapter_footer: c.chapter_footer,
+            opening_illustration_id: c.opening_illustration_id,
+          })),
+      })),
+    };
+  }
+
+  async function onExportPdf(edition: BookEdition) {
     setExporting(true);
     try {
-      const partIds = new Set(parts.map((p) => p.id));
-      const sortedParts = parts.slice().sort((a, b) => (a.rank < b.rank ? -1 : 1));
-
-      const finalVersionIds = allChapters
-        .filter((c) => partIds.has(c.part_id) && c.final_version_id)
-        .map((c) => c.final_version_id as string);
-
-      const versions = await fetchVersionsByIds(finalVersionIds);
-      const versionText = new Map(versions.map((v) => [v.id, v.text]));
-
-      const exportData = {
-        title: book.title,
-        description: book.description,
-        parts: sortedParts.map((p) => ({
-          id: p.id,
-          title: p.title,
-          rank: p.rank,
-          chapters: allChapters
-            .filter((c) => c.part_id === p.id)
-            .sort((a, b) => (a.reading_rank < b.reading_rank ? -1 : 1))
-            .map((c) => ({
-              id: c.id,
-              title: c.title,
-              reading_rank: c.reading_rank,
-              text: c.final_version_id ? (versionText.get(c.final_version_id) ?? '') : '',
-            })),
-        })),
-      };
-
+      const exportData = await buildExportData();
+      if (!exportData) return;
       const { generateBookPdf } = await import('./bookPdfExport');
-      await generateBookPdf(exportData);
+      await generateBookPdf(exportData, edition);
     } finally {
       setExporting(false);
     }
+  }
+
+  function onPreviewPdf(edition: BookEdition) {
+    setPreviewEdition(edition);
+  }
+
+  async function onAddPreface() {
+    if (session.status !== 'authed') return;
+    const c = await createPreface.mutateAsync({
+      worldId,
+      bookId,
+      ownerId: session.session.user.id,
+      title: null,
+    });
+    void navigate({
+      to: '/worlds/$worldId/chapters/$chapterId',
+      params: { worldId, chapterId: c.id },
+    });
+  }
+
+  async function onDeletePreface() {
+    const preface = prefaceQ.data;
+    if (!preface) return;
+    const ok = await confirm({
+      title: 'Delete the preface?',
+      message: 'This removes the preface chapter and its versions.',
+      danger: true,
+    });
+    if (!ok) return;
+    await deleteChapter.mutateAsync({
+      id: preface.id,
+      partId: null,
+      bookId,
+      worldId,
+    });
   }
 
   async function onAddPart(e: FormEvent) {
@@ -133,7 +208,7 @@ export function BookDetailScreen() {
   }
 
   return (
-    <main className="mx-auto flex h-full max-w-3xl flex-col gap-6 px-6 py-6">
+    <main className="mx-auto flex h-full max-w-3xl flex-col gap-6 overflow-y-auto px-6 py-6">
       <header>
         <Link
           to="/worlds/$worldId/books"
@@ -160,15 +235,6 @@ export function BookDetailScreen() {
               </span>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={onExportPdf}
-            disabled={exporting || !bookQ.data || !partsQ.data || !worldChaptersQ.data}
-            className="shrink-0 rounded border border-border px-3 py-1.5 text-sm text-fg-muted hover:border-fg-muted hover:text-fg disabled:cursor-wait disabled:opacity-40"
-            data-testid="export-pdf-btn"
-          >
-            {exporting ? 'Generating…' : 'Export PDF'}
-          </button>
         </div>
         <textarea
           value={descriptionDraft}
@@ -181,6 +247,54 @@ export function BookDetailScreen() {
           data-testid="book-description-input"
         />
       </header>
+
+      <section className="rounded-md border border-border bg-bg-panel" data-testid="preface-section">
+        <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <span className="text-sm font-medium">Preface</span>
+          <span className="text-xs text-fg-muted">
+            Optional — always rendered first, not numbered.
+          </span>
+        </header>
+        {prefaceQ.data ? (
+          <div className="flex items-stretch gap-2" data-testid="preface-row">
+            <Link
+              to="/worlds/$worldId/chapters/$chapterId"
+              params={{ worldId, chapterId: prefaceQ.data.id }}
+              className="flex flex-1 items-baseline justify-between gap-2 px-3 py-2 hover:bg-bg-subtle"
+              data-testid="preface-link"
+            >
+              <span className="text-sm">
+                Preface{prefaceQ.data.title?.trim() ? ` · ${prefaceQ.data.title.trim()}` : ''}
+              </span>
+              {wordCounts ? (
+                <span className="text-xs text-fg-muted" data-testid="preface-word-count">
+                  {formatWordCount(wordCounts.get(prefaceQ.data.id) ?? 0)}
+                </span>
+              ) : null}
+            </Link>
+            <button
+              type="button"
+              onClick={() => void onDeletePreface()}
+              className="px-3 py-2 text-xs text-fg-muted hover:text-red-400"
+              data-testid="preface-delete"
+            >
+              delete
+            </button>
+          </div>
+        ) : (
+          <div className="p-2">
+            <button
+              type="button"
+              onClick={() => void onAddPreface()}
+              disabled={createPreface.isPending}
+              className="bg-bg-subtle px-3 py-1.5 text-sm hover:bg-bg-panel disabled:opacity-50"
+              data-testid="preface-add"
+            >
+              + Add preface
+            </button>
+          </div>
+        )}
+      </section>
 
       <form onSubmit={onAddPart} className="flex gap-2" data-testid="create-part-form">
         <input
@@ -227,7 +341,28 @@ export function BookDetailScreen() {
         </div>
       ) : null}
 
+      <BookEditionsPanel
+        bookId={bookId}
+        worldId={worldId}
+        onExport={onExportPdf}
+        onPreview={onPreviewPdf}
+        exporting={exporting}
+      />
+
       <SharePanel worldId={worldId} bookId={bookId} />
+
+      {previewEdition ? (
+        <PdfPreviewModal
+          buildBlob={async () => {
+            const exportData = await buildExportData();
+            if (!exportData) throw new Error('Book data not loaded');
+            const { buildBookPdfBlob } = await import('./bookPdfExport');
+            return buildBookPdfBlob(exportData, previewEdition);
+          }}
+          onClose={() => setPreviewEdition(null)}
+          title={`${bookQ.data?.title ?? 'Book'} — ${previewEdition.name}`}
+        />
+      ) : null}
     </main>
   );
 }
@@ -370,7 +505,7 @@ function PartSection({ part, indexLabel, worldId, wordCounts, onDelete }: PartSe
                     danger: true,
                   });
                   if (!ok) return;
-                  deleteChapter.mutate({ id: c.id, partId: part.id, worldId });
+                  deleteChapter.mutate({ id: c.id, partId: part.id, bookId: null, worldId });
                 }}
                 className="px-3 py-2 text-xs text-fg-muted hover:text-red-400"
                 data-testid="chapter-delete"

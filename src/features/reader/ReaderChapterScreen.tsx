@@ -2,11 +2,14 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChapter, useChaptersByWorld } from '@/lib/queries/chapters';
 import { useChapterVersions } from '@/lib/queries/chapterVersions';
+import { useBooks } from '@/lib/queries/books';
+import { usePartsByWorld } from '@/lib/queries/parts';
 import { useEntities } from '@/lib/queries/entities';
 import { useEntityTypes } from '@/lib/queries/entityTypes';
 import { resolveColor } from '@/lib/entityColors';
 import { CURRENT_RANK_SENTINEL, resolveSnapshotMapAtRank, formatFieldValue } from '@/features/entities/versioning';
 import { supabase } from '@/lib/supabase';
+import type { Chapter } from '@/features/chapters/types';
 import type { EntityVersion, FieldDef } from '@/features/entities/types';
 
 export function ReaderChapterScreen() {
@@ -15,6 +18,8 @@ export function ReaderChapterScreen() {
   const chapterQ = useChapter(chapterId);
   const versionsQ = useChapterVersions(chapterId);
   const allChaptersQ = useChaptersByWorld(worldId);
+  const booksQ = useBooks(worldId);
+  const partsQ = usePartsByWorld(worldId);
   const entitiesQ = useEntities(worldId);
   const typesQ = useEntityTypes(worldId);
 
@@ -27,23 +32,34 @@ export function ReaderChapterScreen() {
     );
   }, [versionsQ.data, chapterQ.data?.final_version_id]);
 
-  // Compute prev/next chapters in reading order across all books in this world.
+  // Compute prev/next chapters in proper reading order:
+  // book.rank → (preface first within book) → part.rank → chapter.reading_rank.
   const { prev, next } = useMemo(() => {
     if (!chapterQ.data || !allChaptersQ.data) return { prev: null, next: null };
-    // Order chapters by (book.rank, part.rank, chapter.reading_rank). For
-    // simplicity we sort by part_id stability + reading_rank — books/parts/chapters
-    // would need joined fetches; reading_rank is unique within a part, so we
-    // group by part_id and concatenate parts in arbitrary order. We'll just sort
-    // by reading_rank globally as a v1 approximation.
-    const sorted = [...allChaptersQ.data].sort((a, b) =>
-      a.reading_rank < b.reading_rank ? -1 : a.reading_rank > b.reading_rank ? 1 : 0,
-    );
+    const partsById = new Map((partsQ.data ?? []).map((p) => [p.id, p]));
+    const bookRankById = new Map((booksQ.data ?? []).map((b) => [b.id, b.rank]));
+    function bookRankFor(c: Chapter): string {
+      if (c.is_preface && c.book_id) return bookRankById.get(c.book_id) ?? '';
+      const p = c.part_id ? partsById.get(c.part_id) : null;
+      return p ? bookRankById.get(p.book_id) ?? '' : '';
+    }
+    const sorted = [...allChaptersQ.data].sort((a, b) => {
+      const ba = bookRankFor(a);
+      const bb = bookRankFor(b);
+      if (ba !== bb) return ba < bb ? -1 : 1;
+      if (a.is_preface !== b.is_preface) return a.is_preface ? -1 : 1;
+      const pa = a.part_id ? partsById.get(a.part_id)?.rank ?? '' : '';
+      const pb = b.part_id ? partsById.get(b.part_id)?.rank ?? '' : '';
+      if (pa !== pb) return pa < pb ? -1 : 1;
+      if (a.reading_rank === b.reading_rank) return 0;
+      return a.reading_rank < b.reading_rank ? -1 : 1;
+    });
     const idx = sorted.findIndex((c) => c.id === chapterId);
     return {
       prev: idx > 0 ? sorted[idx - 1] : null,
       next: idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null,
     };
-  }, [allChaptersQ.data, chapterQ.data, chapterId]);
+  }, [allChaptersQ.data, partsQ.data, booksQ.data, chapterQ.data, chapterId]);
 
   if (chapterQ.isLoading || !chapterQ.data) {
     return (
@@ -98,7 +114,8 @@ export function ReaderChapterScreen() {
 
       <div className="flex items-baseline gap-3">
         <h1 className="text-3xl font-semibold tracking-tight">
-          {chapterQ.data.title?.trim() || '(untitled)'}
+          {chapterQ.data.title?.trim() ||
+            (chapterQ.data.is_preface ? 'Preface' : '(untitled)')}
         </h1>
         {!isPublished ? (
           <span
@@ -113,13 +130,29 @@ export function ReaderChapterScreen() {
       {!finalVersion || !finalVersion.text.trim() ? (
         <p className="italic text-fg-muted">This chapter has no text yet.</p>
       ) : (
-        <ReaderBody
-          html={finalVersion.text}
-          worldId={worldId}
-          chronologicalRank={CURRENT_RANK_SENTINEL}
-          entities={entitiesQ.data ?? []}
-          types={typesQ.data ?? []}
-        />
+        <>
+          {chapterQ.data.chapter_header && chapterQ.data.chapter_header.trim() ? (
+            <div
+              className="prose prose-invert max-w-none text-lg leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: chapterQ.data.chapter_header }}
+              data-testid="reader-chapter-header"
+            />
+          ) : null}
+          <ReaderBody
+            html={finalVersion.text}
+            worldId={worldId}
+            chronologicalRank={CURRENT_RANK_SENTINEL}
+            entities={entitiesQ.data ?? []}
+            types={typesQ.data ?? []}
+          />
+          {chapterQ.data.chapter_footer && chapterQ.data.chapter_footer.trim() ? (
+            <div
+              className="prose prose-invert max-w-none text-lg leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: chapterQ.data.chapter_footer }}
+              data-testid="reader-chapter-footer"
+            />
+          ) : null}
+        </>
       )}
     </main>
   );

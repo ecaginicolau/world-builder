@@ -20,6 +20,8 @@ const ev = (id: string, rank: string): TimelineEvent => ({
 const ch = (id: string): Chapter => ({
   id,
   part_id: 'p',
+  book_id: null,
+  is_preface: false,
   world_id: 'w',
   owner_id: 'o',
   reading_rank: '0',
@@ -28,6 +30,9 @@ const ch = (id: string): Chapter => ({
   summary_s: null,
   summary_m: null,
   summary_l: null,
+  chapter_header: null,
+  chapter_footer: null,
+  opening_illustration_id: null,
   status: 'draft',
   published_at: null,
   last_analyzed_at: null,

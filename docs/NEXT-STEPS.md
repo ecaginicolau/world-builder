@@ -2,6 +2,71 @@
 
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
+## Status (2026-05-10, slice book-editions — mise en page imprimable KDP-ready + WYSIWYG live preview livrés)
+
+**Slice "book editions" (post-v1) livrée en 2 incréments — V1 (PDF export édition-driven) puis V2 (WYSIWYG live preview HTML/CSS). V019 appliquée (table `book_editions`). Typecheck + lint + 186 Vitest + build prod ✓ (post-V2). Pilote local Chrome MCP : création édition, form ouvert avec preview live 2 pages face-à-face (verso+recto), polices EB Garamond rendues correctement, vrai mirror margins, drop cap inline, headers alternés, page numbers parity-aware ; export PDF du livre comptable (33k mots, 9 chapitres) en ~9s ✓.**
+
+Voir **[docs/demo/book-editions.md](./demo/book-editions.md)** pour le walkthrough complet (création édition → personnalisation avec preview WYSIWYG live → export PDF KDP-ready).
+
+### Migration V019 (appliquée)
+
+- Table `book_editions` (1-N par livre) avec FK `books`/`worlds`/`auth.users` et RLS owner-only.
+- Trim en mm, marges miroir (`inside`/`outside`/`top`/`bottom`), polices par élément (body / chapter title / header / footer / chapter framing) en colonnes plates avec `*_font` text + `*_size_pt` numeric, toggles (`drop_cap`, `body_justify`, `include_illustrations`, `chapter_starts_on_recto`, `header_show_on_chapter_first_page`, `footer_show_on_chapter_first_page`), `header_mode` enum, `footer_position` enum.
+
+### Livré
+
+- **Schéma + queries** : `BookEdition` type ([src/features/chapters/types.ts](../src/features/chapters/types.ts)), CRUD hooks ([src/lib/queries/bookEditions.ts](../src/lib/queries/bookEditions.ts)) avec `defaultEditionDraft()` (preset 6×9 KDP).
+- **Polices embarquées** : 3 familles open-font-license bundlées via `@fontsource/{eb-garamond,cormorant-garamond,jetbrains-mono}` (Regular/Italic/Bold/BoldItalic chacune en .woff). Catalogue + résolution dans [src/lib/pdfFonts.ts](../src/lib/pdfFonts.ts) (chunk dynamique). Liste des noms exposée séparément dans [src/lib/pdfFontCatalog.ts](../src/lib/pdfFontCatalog.ts) pour que l'UI ne tire pas le bundle PDF.
+- **PDF export édition-driven** : [bookPdfExport.tsx](../src/features/chapters/bookPdfExport.tsx) refondu — `generateBookPdf(book, edition)`. Trim/marges depuis l'édition, segmentation par `pageBreak`, drop cap inline sur 1ʳᵉ paragraphe de chapitre, headers/footers via `<Text fixed render={...}>` parity-aware, framing per-chapter (chapter_header / chapter_footer rendus avec leur style propre), illustrations toggle.
+- **Tiptap pageBreak** : nouveau nœud bloc atomique [src/features/notes/pageBreakExtension.tsx](../src/features/notes/pageBreakExtension.tsx) (parse `<div data-page-break>`, NodeView décoratif). NoteEditor expose `enablePageBreaks` + handles `insertPageBreak()` et `insertFullPageIllustration(illId, entId)`. Bouton "+ Page break" + bouton "+ Full-page illustration" (avec picker) ajoutés dans la sidebar de ChapterScreen.
+- **Full-page illustrations** : le nœud `pageBreak` porte optionnellement `illustrationId` + `entityId`. Sans → page break vide (comportement initial). Avec → page dédiée full-bleed-like (image centrée, max-fit, ratio préservé, pas de header/footer/page number). NodeView affiche soit le séparateur tireté soit le cadre miniature avec caption. Picker réutilise [IllustrationPicker.tsx](../src/features/chapters/IllustrationPicker.tsx) extrait pour cette occasion.
+- **UI éditions** : [BookEditionsPanel.tsx](../src/features/chapters/BookEditionsPanel.tsx) sous BookDetailScreen. Liste/CRUD éditions avec form expand-in-place (8 sections : Trim / Margins / Body / Chapter title / Header / Footer / Per-chapter framing / Behavior). Auto-save sur chaque champ (`useUpdateBookEdition` invalidé via React Query). Bouton "Export PDF" par édition.
+- **WYSIWYG live preview (V2)** : [BookEditionPreview.tsx](../src/features/chapters/BookEditionPreview.tsx) affiché sous le form quand il est ouvert. Rend 2 pages face-à-face (verso + recto) en HTML/CSS au scale 0.55× pour tenir dans le panneau. Importe les @fontsource webfonts (EB Garamond / Cormorant Garamond / JetBrains Mono — 400+700 normal+italic chacun) pour avoir le **rendu réel** des polices dans le preview. Vrai mirror margins via CSS (variant verso/recto). Headers/footers parity-aware. Drop cap inline (matche l'approche PDF). Cap à 15 paragraphes par page (sinon Chrome gèle). Reactive via React Query — l'édition mise à jour côté form re-fetch et reflow le preview instantanément. Si le chapitre 1 contient un nœud `pageBreak` avec illustration, la page de gauche affiche cette illustration full-page au lieu du body running (utile pour valider le rendu d'une planche sans devoir exporter le PDF).
+- **Productivity loop (layout iteration)** :
+  - **Layout edits sans unpublish** : `runLayoutCommand(editor, fn)` ([NoteEditor.tsx](../src/features/notes/NoteEditor.tsx)) flippe `editable=true` autour d'une commande synchrone puis revient à `false`. Toutes les commandes layout (insertPageBreak, insertIllustration, insertFullPageIllustration, deleteNode dans les NodeViews) passent par cette helper. Sur chapitre `PUBLISHED` : le texte reste read-only, mais boutons "+ Page break" / "+ Full-page illustration" / "+ Insert illustration" + Opening illustration control + chapter_header/footer NoteEditors sont tous fonctionnels.
+  - **In-app PDF preview** : nouveau `buildBookPdfBlob(book, edition)` exposé par bookPdfExport (renvoie blob sans download). [PdfPreviewModal.tsx](../src/features/chapters/PdfPreviewModal.tsx) = full-screen modal avec `<iframe src={blobUrl}>` (viewer browser natif). URL revoked au unmount. BookEditionsPanel a maintenant 2 boutons par édition : **Preview PDF** (modal) et **Export PDF** (download).
+  - **Chapter-scoped PDF preview** : bouton "Preview PDF" sur ChapterScreen, génère un PDF de 3 chapitres (prev + this + next dans le même part) avec la 1ʳᵉ édition du livre. ~3-4s vs ~10-15s pour le livre entier. Composant `ChapterPdfPreview` inline dans ChapterScreen.
+- **Demo guide** : [docs/demo/book-editions.md](./demo/book-editions.md).
+
+### Décisions tranchées
+
+- **Multi-éditions par livre** dès V1 — `book_id` FK, pas de notion `is_default`. La 1ʳᵉ édition créée fait office de défaut implicite.
+- **Pas de WYSIWYG live** — config en formulaire, prévisu = export PDF (5-15s). WYSIWYG en V2 si besoin.
+- **Config en unités sémantiques** (mm pour marges, pt pour polices, noms de famille text) — engine-agnostic, ouvre la porte à un futur Paged.js / HTML CSS preview qui lirait le même row.
+- **Front/back matter HORS scope** — KDP gère titre, copyright, ISBN, TOC à l'upload.
+- **Bleed + planches pleine page HORS scope V1** — pas de full-page illustrations dans le manuscrit comptable, à reconsidérer si besoin.
+- **Polices Standard-14 (Times/Helvetica/Courier)** gardées comme fallback dans le catalogue mais non recommandées pour KDP (pas embarquées par @react-pdf — Type-1 référencées seulement).
+- **Marges miroir approximées V1** : corps centré (padding L/R = avg(inside,outside)), headers/footers parity-aware. Vrai mirror = V2.
+- **`chapter_starts_on_recto` toggle stocké mais non enforce V1** — pas de moyen d'insérer conditionnellement une page blanche depuis le React tree (parity connue qu'au layout time). Workaround : page-break manuel.
+- **Hyphénation désactivée V1** (`Font.registerHyphenationCallback(word => [word])`) — pas de dictionnaire FR. Justify peut produire des "rivières" sur petites largeurs ; à reévaluer après vrai pilote KDP.
+
+### Pièges contournés
+
+- **Crash `unsupported number: -1.14e+23`** sur contenu qui overflow vers 2ᵉ page : causé par `<View fixed render={() => JSX}>` avec `bottom: ...` pour le footer. Fix : `<Text fixed render={() => string}>` + position `top: trimHeight - padBottom/2 - fontSize`. Pattern documenté en commentaires inline dans `bookPdfExport.tsx`.
+- **Bundle PWA precache 2.82 MB** : éviter de tirer @react-pdf+woff dans le main chunk. Fix : module `pdfFontCatalog.ts` séparé, sans dépendance @react-pdf, importé statiquement par l'UI ; `pdfFonts.ts` (avec @react-pdf + woff via `?url`) importé seulement depuis `bookPdfExport.tsx` (lui-même chargé via `await import(...)`). Bundle final : main 1.36 MB, bookPdfExport chunk 1.47 MB.
+- **WOFF chargé via `?url` non absolu** : `is-url` rejette `/assets/x.woff` → fontkit fallback Node-only → métriques NaN → crash layout. Fix : `new URL(path, window.location.origin).toString()` dans `ensureFontsRegistered`.
+- **Filename Chrome download** : combo de caractères unicode (em-dash + multiplication sign) silencieusement bloqué par Chrome. Fix : sanitiser title ET edition name en ASCII (`[^A-Za-z0-9\s\-_.] → _`).
+- **Preview WYSIWYG : hooks order violation** initial avec early return avant `useState`/`useRef`/`useEffect` → "Rendered more hooks than during the previous render". Fix : tous les hooks avant le early return.
+- **Preview WYSIWYG : freeze Chrome au-delà de ~25 paragraphes** par page rendus à scale natif. Cap à 15 paragraphes/page + scale 0.55× baked dans `mmPx`/`ptPx` plutôt que `transform: scale` (évite la double-layout pass). ResizeObserver pour auto-fit retiré (cause potentielle de boucle de re-render avec inline height).
+
+### À piloter live (étape user)
+
+- Apply V019 ✓
+- Pilote manuel selon `docs/demo/book-editions.md` : création édition, customisation form, export PDF du comptable, ouverture du PDF dans Adobe Reader pour vérifier polices embarquées, tester upload sur compte KDP staging si possible.
+- Si tout va bien sur le manuscrit comptable, valider la mise en prod.
+
+### À reprendre dans une prochaine session — point d'entrée
+
+À déterminer après pilote KDP. Pistes selon retours :
+
+1. Si rivières blanches du justify gênent → intégrer hyphénation FR (lib `hyphen` + dictionnaire FR Patterns)
+2. Si mirror margins approximatives gênent à l'œil → bascule Paged.js (HTML→PDF via Chromium headless) ou pagination manuelle multi-Page
+3. Planches pleine page (bleed 3.175mm + recto-only avec verso blanc) si besoin pour version illustrée
+4. WYSIWYG live preview en HTML/CSS (V2 décidée mais reportée)
+5. TOC auto, lettrines vraies 2-lignes, drop cap
+
+---
+
 ## Status (2026-05-09, slice illustrations — illustrations attachées aux entities + embed dans chapitres livrés, en attente de pilote live)
 
 **Slice "illustrations" (post-v1) livrée côté code. V017 appliquée. Typecheck + lint + 186 Vitest ✓. Pilote local Chrome MCP : upload + gallery + picker + insertion Tiptap + NodeView ✓.**

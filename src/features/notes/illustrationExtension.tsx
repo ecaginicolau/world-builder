@@ -2,6 +2,7 @@ import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import type { NodeViewProps } from '@tiptap/react';
 import { useIllustration, publicUrlFor } from '@/lib/queries/illustrations';
+import { runLayoutCommand } from './NoteEditor';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -70,7 +71,9 @@ export const IllustrationExtension = Node.create({
 function IllustrationNodeView({ node, deleteNode, editor }: NodeViewProps) {
   const id = node.attrs.illustrationId as string | null;
   const { data: illustration, isLoading } = useIllustration(id);
-  const isEditable = editor.isEditable;
+  // Always show the remove button — layout commands bypass readOnly so this
+  // works on a published chapter too (illustrations are layout, not text).
+  const onRemove = () => runLayoutCommand(editor, () => deleteNode());
   const url = illustration ? publicUrlFor(illustration.storage_path) : null;
 
   return (
@@ -100,17 +103,15 @@ function IllustrationNodeView({ node, deleteNode, editor }: NodeViewProps) {
           {illustration.caption}
         </figcaption>
       ) : null}
-      {isEditable ? (
-        <button
-          type="button"
-          onClick={() => deleteNode()}
-          className="text-[10px] text-fg-muted hover:text-red-400"
-          contentEditable={false}
-          data-testid="illustration-node-remove"
-        >
-          Remove from chapter
-        </button>
-      ) : null}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="text-[10px] text-fg-muted hover:text-red-400"
+        contentEditable={false}
+        data-testid="illustration-node-remove"
+      >
+        Remove from chapter
+      </button>
     </NodeViewWrapper>
   );
 }

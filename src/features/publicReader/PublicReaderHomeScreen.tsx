@@ -85,9 +85,10 @@ export function PublicReaderHomeScreen() {
     );
   }
 
+  const preface = data.chapters.find((c) => c.is_preface) ?? null;
   const partsWithChapters = data.parts.map((p) => ({
     ...p,
-    chapters: data.chapters.filter((c) => c.part_id === p.id),
+    chapters: data.chapters.filter((c) => !c.is_preface && c.part_id === p.id),
   }));
 
   return (
@@ -103,7 +104,29 @@ export function PublicReaderHomeScreen() {
             {data.book.description}
           </p>
         ) : null}
-        {partsWithChapters.length === 0 ? (
+        {preface ? (
+          <section data-testid="reader-toc-preface">
+            <h2>Preface</h2>
+            <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
+              <li>
+                <Link
+                  to="/r/$token/c/$chapterId"
+                  params={{ token, chapterId: preface.id }}
+                  className="reader-link"
+                  data-testid="reader-toc-preface-link"
+                >
+                  {preface.title?.trim() || 'Preface'}
+                </Link>
+                {preface.status === 'draft' ? (
+                  <span className="reader-draft-badge" title="Not yet published">
+                    DRAFT
+                  </span>
+                ) : null}
+              </li>
+            </ul>
+          </section>
+        ) : null}
+        {partsWithChapters.length === 0 && !preface ? (
           <p style={{ color: 'var(--reader-fg-muted)' }}>No chapters available yet.</p>
         ) : (
           partsWithChapters.map((p) => (
@@ -144,7 +167,11 @@ export function PublicReaderHomeScreen() {
           ))
         )}
         <div className="reader-footer">
-          <span>{partsWithChapters.reduce((acc, p) => acc + p.chapters.length, 0)} chapters</span>
+          <span>
+            {partsWithChapters.reduce((acc, p) => acc + p.chapters.length, 0) +
+              (preface ? 1 : 0)}{' '}
+            chapters
+          </span>
           <span>Reading as {identity?.name}</span>
         </div>
       </div>

@@ -8,6 +8,7 @@ import { chapterWordCountsKeys } from './chapterWordCounts';
 export const chaptersKeys = {
   byPart: (partId: string) => ['chapters', 'byPart', partId] as const,
   byWorld: (worldId: string) => ['chapters', 'byWorld', worldId] as const,
+  prefaceByBook: (bookId: string) => ['chapters', 'prefaceByBook', bookId] as const,
   detail: (id: string) => ['chapters', 'detail', id] as const,
 };
 
@@ -40,6 +41,23 @@ export function useChaptersByWorld(worldId: string) {
       return (data ?? []) as Chapter[];
     },
     enabled: !!worldId,
+  });
+}
+
+export function usePrefaceByBook(bookId: string) {
+  return useQuery<Chapter | null, Error>({
+    queryKey: chaptersKeys.prefaceByBook(bookId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('chapters')
+        .select('*')
+        .eq('book_id', bookId)
+        .eq('is_preface', true)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as Chapter | null;
+    },
+    enabled: !!bookId,
   });
 }
 
@@ -163,13 +181,81 @@ export function useCreateChapter() {
       return updated as Chapter;
     },
     onSuccess: (c) => {
-      void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(c.part_id) });
+      if (c.part_id) {
+        void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(c.part_id) });
+      }
       void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(c.world_id) });
       void qc.invalidateQueries({ queryKey: chapterVersionsKeys.byChapter(c.id) });
       void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(c.world_id) });
       void qc.invalidateQueries({ queryKey: ['events', 'byWorld', c.world_id] });
       void qc.invalidateQueries({ queryKey: ['chapter_events', 'byChapter', c.id] });
       void qc.invalidateQueries({ queryKey: ['chapter_events', 'byWorld', c.world_id] });
+    },
+  });
+}
+
+interface CreatePrefaceInput {
+  worldId: string;
+  bookId: string;
+  ownerId: string;
+  title?: string | null;
+  draft?: string;
+}
+
+/**
+ * Creates a preface chapter (book_id set, part_id null, is_preface=true).
+ * No event/timeline link — prefaces sit outside the canon timeline.
+ */
+export function useCreatePreface() {
+  const qc = useQueryClient();
+  return useMutation<Chapter, Error, CreatePrefaceInput>({
+    mutationFn: async ({ worldId, bookId, ownerId, title, draft }) => {
+      const { data: chapter, error } = await supabase
+        .from('chapters')
+        .insert({
+          world_id: worldId,
+          book_id: bookId,
+          part_id: null,
+          is_preface: true,
+          owner_id: ownerId,
+          reading_rank: START_RANK,
+          title: title?.trim() || null,
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
+
+      const { data: v0, error: vErr } = await supabase
+        .from('chapter_versions')
+        .insert({
+          chapter_id: chapter.id,
+          world_id: worldId,
+          owner_id: ownerId,
+          rank: START_RANK,
+          origin: 'draft',
+          text: draft ?? '',
+        })
+        .select('id')
+        .single();
+      if (vErr) throw vErr;
+
+      const { data: updated, error: upErr } = await supabase
+        .from('chapters')
+        .update({ final_version_id: v0.id })
+        .eq('id', chapter.id)
+        .select('*')
+        .single();
+      if (upErr) throw upErr;
+
+      return updated as Chapter;
+    },
+    onSuccess: (c) => {
+      if (c.book_id) {
+        void qc.invalidateQueries({ queryKey: chaptersKeys.prefaceByBook(c.book_id) });
+      }
+      void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(c.world_id) });
+      void qc.invalidateQueries({ queryKey: chapterVersionsKeys.byChapter(c.id) });
+      void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(c.world_id) });
     },
   });
 }
@@ -189,12 +275,15 @@ export function useUpdateChapter() {
       summaryL?: string | null;
       status?: 'draft' | 'published';
       lastAnalyzedAt?: string | null;
+      chapterHeader?: string | null;
+      chapterFooter?: string | null;
+      openingIllustrationId?: string | null;
     }
   >({
     mutationFn: async ({
       id, title, readingRank, finalVersionId,
       summaryS, summaryM, summaryL, status,
-      lastAnalyzedAt,
+      lastAnalyzedAt, chapterHeader, chapterFooter, openingIllustrationId,
     }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title;
@@ -208,6 +297,10 @@ export function useUpdateChapter() {
         patch.published_at = status === 'published' ? new Date().toISOString() : null;
       }
       if (lastAnalyzedAt !== undefined) patch.last_analyzed_at = lastAnalyzedAt;
+      if (chapterHeader !== undefined) patch.chapter_header = chapterHeader;
+      if (chapterFooter !== undefined) patch.chapter_footer = chapterFooter;
+      if (openingIllustrationId !== undefined)
+        patch.opening_illustration_id = openingIllustrationId;
       const { data, error } = await supabase
         .from('chapters')
         .update(patch)
@@ -219,7 +312,12 @@ export function useUpdateChapter() {
     },
     onSuccess: (c) => {
       qc.setQueryData(chaptersKeys.detail(c.id), c);
-      void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(c.part_id) });
+      if (c.part_id) {
+        void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(c.part_id) });
+      }
+      if (c.book_id) {
+        void qc.invalidateQueries({ queryKey: chaptersKeys.prefaceByBook(c.book_id) });
+      }
       void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(c.world_id) });
       void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(c.world_id) });
     },
@@ -229,17 +327,18 @@ export function useUpdateChapter() {
 export function useDeleteChapter() {
   const qc = useQueryClient();
   return useMutation<
-    { id: string; partId: string; worldId: string },
+    { id: string; partId: string | null; bookId: string | null; worldId: string },
     Error,
-    { id: string; partId: string; worldId: string }
+    { id: string; partId: string | null; bookId?: string | null; worldId: string }
   >({
-    mutationFn: async ({ id, partId, worldId }) => {
+    mutationFn: async ({ id, partId, bookId, worldId }) => {
       const { error } = await supabase.from('chapters').delete().eq('id', id);
       if (error) throw error;
-      return { id, partId, worldId };
+      return { id, partId, bookId: bookId ?? null, worldId };
     },
-    onSuccess: ({ partId, worldId }) => {
-      void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(partId) });
+    onSuccess: ({ partId, bookId, worldId }) => {
+      if (partId) void qc.invalidateQueries({ queryKey: chaptersKeys.byPart(partId) });
+      if (bookId) void qc.invalidateQueries({ queryKey: chaptersKeys.prefaceByBook(bookId) });
       void qc.invalidateQueries({ queryKey: chaptersKeys.byWorld(worldId) });
       void qc.invalidateQueries({ queryKey: chapterWordCountsKeys.byWorld(worldId) });
     },
