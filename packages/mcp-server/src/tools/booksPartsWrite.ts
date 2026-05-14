@@ -54,17 +54,19 @@ export function registerBooksPartsWriteTools(
     "update_book",
     {
       title: "Update book",
-      description: "Patch a book's title or description.",
+      description: "Patch a book's title, description, or back cover.",
       inputSchema: {
         book_id: z.string().uuid(),
         title: z.string().min(1).optional(),
         description: z.string().nullish(),
+        back_cover: z.string().nullish(),
       },
     },
-    async ({ book_id, title, description }) => {
+    async ({ book_id, title, description, back_cover }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title.trim();
       if (description !== undefined) patch.description = description;
+      if (back_cover !== undefined) patch.back_cover = back_cover;
       if (Object.keys(patch).length === 0) return fail("No fields to update");
       const r = await ctx.supabase
         .from("books")

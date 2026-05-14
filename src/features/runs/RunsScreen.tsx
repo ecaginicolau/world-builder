@@ -3,7 +3,7 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useRunsPage, type RunStatus, type RunKind, type RangeKey, type RunRow } from '@/lib/queries/runs';
 
 const PAGE_SIZE = 50;
-const KINDS: (RunKind | 'all')[] = ['all', 'chat', 'auto_extract', 'upscale', 'propose_updates', 'summarize'];
+const KINDS: (RunKind | 'all')[] = ['all', 'chat', 'auto_extract', 'upscale', 'propose_updates', 'summarize', 'back_cover'];
 const STATUSES: (RunStatus | 'all')[] = ['all', 'success', 'error', 'cancelled'];
 const RANGES: { key: RangeKey; label: string }[] = [
   { key: 'today', label: 'Today' },

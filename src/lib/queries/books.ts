@@ -66,11 +66,16 @@ export function useCreateBook() {
 
 export function useUpdateBook() {
   const qc = useQueryClient();
-  return useMutation<Book, Error, { id: string; title?: string; description?: string | null }>({
-    mutationFn: async ({ id, title, description }) => {
+  return useMutation<
+    Book,
+    Error,
+    { id: string; title?: string; description?: string | null; backCover?: string | null }
+  >({
+    mutationFn: async ({ id, title, description, backCover }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title.trim();
       if (description !== undefined) patch.description = description;
+      if (backCover !== undefined) patch.back_cover = backCover;
       const { data, error } = await supabase
         .from('books')
         .update(patch)

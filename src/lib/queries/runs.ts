@@ -6,7 +6,8 @@ export type RunKind =
   | 'auto_extract'
   | 'upscale'
   | 'propose_updates'
-  | 'summarize';
+  | 'summarize'
+  | 'back_cover';
 
 export type RunStatus = 'success' | 'error' | 'cancelled';
 

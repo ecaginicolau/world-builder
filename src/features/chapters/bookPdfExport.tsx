@@ -1,5 +1,6 @@
 import { Document, Image, Page, Text, View, pdf } from '@react-pdf/renderer';
 import type { Style } from '@react-pdf/types';
+import { PDFDocument } from 'pdf-lib';
 import { parseHtmlToBlocks } from '@/lib/htmlToPdfContent';
 import type { IllustrationResolution, PdfBlock, TextRun } from '@/lib/htmlToPdfContent';
 import { extractIllustrationIds } from '@/lib/illustrationHydration';
@@ -61,10 +62,11 @@ export interface BookExportData {
 /**
  * V1 layout limitations to flag if pilot reveals issues:
  *
- *   1. Mirror margins are APPROXIMATED. Inside/outside are averaged into a
- *      symmetric L/R padding because @react-pdf/renderer does not let Page
- *      padding depend on page parity. Header/footer ARE parity-aware via fixed
- *      views with `render` props.
+ *   1. Mirror margins: @react-pdf cannot vary Page padding by parity. We render
+ *      with a symmetric L/R padding equal to (inside+outside)/2 — body width is
+ *      identical to the asymmetric target, so line/page breaks are correct —
+ *      then post-process the PDF with pdf-lib to shift each page horizontally
+ *      by ±(inside-outside)/2 based on parity. See `applyMirrorMarginShift`.
  *
  *   2. `chapter_starts_on_recto` is NOT enforced — there is no way to
  *      conditionally insert a blank page from the React tree (parity is only
@@ -395,7 +397,10 @@ function BookPdfDocument({
 }) {
   const trimWidth = mm(edition.trim_width_mm);
   const trimHeight = mm(edition.trim_height_mm);
-  // V1 limitation: symmetric L/R padding (mirror margins approximated).
+  // Symmetric L/R padding here keeps the body column width identical to what
+  // proper mirror margins would produce — so line breaks and page breaks
+  // match the asymmetric target. The horizontal offset is corrected after
+  // rendering by `applyMirrorMarginShift`.
   const padLR = mm((edition.margin_inside_mm + edition.margin_outside_mm) / 2);
   const padTop = mm(edition.margin_top_mm);
   const padBottom = mm(edition.margin_bottom_mm);
@@ -868,6 +873,38 @@ async function resolveBookIllustrations(
 }
 
 /**
+ * Mirror-margin correction. The React tree renders with symmetric padding
+ * (inside+outside)/2 — body column width is correct, but each page sits
+ * centered on the trim instead of offset toward the outside edge. We shift
+ * each page's content by ±(inside-outside)/2 based on parity:
+ *
+ *   - Recto (page 1, 3, 5…): inside = left edge → shift content RIGHT, so
+ *     the left (spine) margin widens to `inside_mm` and the right shrinks
+ *     to `outside_mm`.
+ *   - Verso (page 2, 4, 6…): inside = right edge → shift content LEFT.
+ *
+ * If inside == outside, no shift is applied and the original blob is returned.
+ */
+async function applyMirrorMarginShift(blob: Blob, edition: BookEdition): Promise<Blob> {
+  const delta = edition.margin_inside_mm - edition.margin_outside_mm;
+  if (delta === 0) return blob;
+  const shiftPt = mm(delta / 2);
+  const bytes = await blob.arrayBuffer();
+  const doc = await PDFDocument.load(bytes);
+  doc.getPages().forEach((page, i) => {
+    const isRecto = (i + 1) % 2 === 1;
+    const dx = isRecto ? shiftPt : -shiftPt;
+    page.translateContent(dx, 0);
+  });
+  const out = await doc.save();
+  // pdf-lib types save() as Uint8Array<ArrayBufferLike>; copy into a fresh
+  // ArrayBuffer-backed view so it satisfies the strict BlobPart type.
+  const copy = new Uint8Array(out.byteLength);
+  copy.set(out);
+  return new Blob([copy], { type: 'application/pdf' });
+}
+
+/**
  * Build a PDF blob without triggering a download. Used by the in-app preview
  * modal — the consumer is responsible for `URL.createObjectURL(blob)` and
  * later `URL.revokeObjectURL` once it's done with the iframe.
@@ -878,9 +915,10 @@ export async function buildBookPdfBlob(
 ): Promise<Blob> {
   ensureFontsRegistered();
   const illustrations = await resolveBookIllustrations(book);
-  return pdf(
+  const raw = await pdf(
     <BookPdfDocument book={book} edition={edition} illustrations={illustrations} />,
   ).toBlob();
+  return applyMirrorMarginShift(raw, edition);
 }
 
 export async function generateBookPdf(

@@ -11,6 +11,7 @@ import { rankForMoveDown, rankForMoveUp } from '@/features/timeline/timelineItem
 import { formatWordCount } from '@/lib/wordCount';
 import { SharePanel } from './SharePanel';
 import { BookEditionsPanel } from './BookEditionsPanel';
+import { BackCoverPanel } from './BackCoverPanel';
 import { PdfPreviewModal } from './PdfPreviewModal';
 import type { BookEdition, Part } from './types';
 
@@ -340,6 +341,8 @@ export function BookDetailScreen() {
           ))}
         </div>
       ) : null}
+
+      {bookQ.data ? <BackCoverPanel book={bookQ.data} /> : null}
 
       <BookEditionsPanel
         bookId={bookId}
