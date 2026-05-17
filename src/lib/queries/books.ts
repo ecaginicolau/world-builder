@@ -69,11 +69,18 @@ export function useUpdateBook() {
   return useMutation<
     Book,
     Error,
-    { id: string; title?: string; description?: string | null; backCover?: string | null }
+    {
+      id: string;
+      title?: string;
+      seriesTitle?: string | null;
+      description?: string | null;
+      backCover?: string | null;
+    }
   >({
-    mutationFn: async ({ id, title, description, backCover }) => {
+    mutationFn: async ({ id, title, seriesTitle, description, backCover }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title.trim();
+      if (seriesTitle !== undefined) patch.series_title = seriesTitle;
       if (description !== undefined) patch.description = description;
       if (backCover !== undefined) patch.back_cover = backCover;
       const { data, error } = await supabase

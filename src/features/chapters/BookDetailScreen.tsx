@@ -45,12 +45,14 @@ export function BookDetailScreen() {
   const [partTitle, setPartTitle] = useState('');
   const [exporting, setExporting] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [seriesTitleDraft, setSeriesTitleDraft] = useState('');
   const [descriptionDraft, setDescriptionDraft] = useState('');
   const [previewEdition, setPreviewEdition] = useState<BookEdition | null>(null);
 
   useEffect(() => {
     if (bookQ.data) {
       setTitleDraft(bookQ.data.title);
+      setSeriesTitleDraft(bookQ.data.series_title ?? '');
       setDescriptionDraft(bookQ.data.description ?? '');
     }
   }, [bookQ.data]);
@@ -64,6 +66,15 @@ export function BookDetailScreen() {
       return;
     }
     updateBook.mutate({ id: book.id, title: trimmed });
+  }
+
+  function commitSeriesTitle() {
+    const book = bookQ.data;
+    if (!book) return;
+    const trimmed = seriesTitleDraft.trim();
+    const current = book.series_title ?? '';
+    if (trimmed === current) return;
+    updateBook.mutate({ id: book.id, seriesTitle: trimmed === '' ? null : trimmed });
   }
 
   function commitDescription() {
@@ -107,6 +118,7 @@ export function BookDetailScreen() {
 
     return {
       title: book.title,
+      series_title: book.series_title,
       description: book.description,
       preface: preface
         ? {
@@ -219,6 +231,15 @@ export function BookDetailScreen() {
         >
           ← Books
         </Link>
+        <input
+          value={seriesTitleDraft}
+          onChange={(e) => setSeriesTitleDraft(e.target.value)}
+          onBlur={commitSeriesTitle}
+          disabled={!bookQ.data}
+          placeholder="Series (optional) — shown above the title on the PDF cover."
+          className="mt-2 w-full bg-transparent text-xs tracking-wider text-fg-muted focus:outline-none"
+          data-testid="book-series-title-input"
+        />
         <div className="mt-1 flex items-baseline justify-between gap-3">
           <div className="flex flex-1 items-baseline gap-3">
             <input

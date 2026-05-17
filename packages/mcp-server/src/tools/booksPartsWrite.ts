@@ -17,10 +17,11 @@ export function registerBooksPartsWriteTools(
       inputSchema: {
         world_id: z.string().uuid(),
         title: z.string().min(1),
+        series_title: z.string().nullish(),
         description: z.string().nullish(),
       },
     },
-    async ({ world_id, title, description }) => {
+    async ({ world_id, title, series_title, description }) => {
       const ex = await ctx.supabase
         .from("books")
         .select("rank")
@@ -33,6 +34,7 @@ export function registerBooksPartsWriteTools(
           world_id,
           owner_id: ctx.ownerId,
           title: title.trim(),
+          series_title: series_title ?? null,
           description: description ?? null,
           rank,
         })
@@ -54,17 +56,19 @@ export function registerBooksPartsWriteTools(
     "update_book",
     {
       title: "Update book",
-      description: "Patch a book's title, description, or back cover.",
+      description: "Patch a book's title, series, description, or back cover.",
       inputSchema: {
         book_id: z.string().uuid(),
         title: z.string().min(1).optional(),
+        series_title: z.string().nullish(),
         description: z.string().nullish(),
         back_cover: z.string().nullish(),
       },
     },
-    async ({ book_id, title, description, back_cover }) => {
+    async ({ book_id, title, series_title, description, back_cover }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title.trim();
+      if (series_title !== undefined) patch.series_title = series_title;
       if (description !== undefined) patch.description = description;
       if (back_cover !== undefined) patch.back_cover = back_cover;
       if (Object.keys(patch).length === 0) return fail("No fields to update");

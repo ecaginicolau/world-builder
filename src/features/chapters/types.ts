@@ -4,6 +4,7 @@ export interface Book {
   owner_id: string;
   rank: string;
   title: string;
+  series_title: string | null;
   description: string | null;
   back_cover: string | null;
   created_at: string;

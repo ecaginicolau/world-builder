@@ -48,6 +48,9 @@ export interface PrefaceExportData {
 
 export interface BookExportData {
   title: string;
+  /** Optional series name rendered as a small line above the book title on
+   * the cover page (no effect when `omitTitlePage` is true). */
+  series_title?: string | null;
   description?: string | null;
   /** Optional preface — rendered first, no chapter number, fallback title "Preface". */
   preface?: PrefaceExportData | null;
@@ -429,6 +432,20 @@ function BookPdfDocument({
   if (!book.omitTitlePage) {
     pages.push(
       <Page key="__title" size={[trimWidth, trimHeight]} style={titlePageStyle}>
+        {book.series_title && book.series_title.trim() ? (
+          <Text
+            style={{
+              textAlign: 'center',
+              marginBottom: 10,
+              ...resolveFontStyle(edition.chapter_title_font, false, true),
+              fontSize: edition.chapter_title_size_pt - 2,
+              letterSpacing: 1.5,
+              color: '#555',
+            }}
+          >
+            {book.series_title.trim()}
+          </Text>
+        ) : null}
         <Text
           style={{
             textAlign: 'center',
