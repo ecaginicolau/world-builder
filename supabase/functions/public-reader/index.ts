@@ -290,7 +290,7 @@ async function hydrateChapterIllustrations(html: string): Promise<string> {
   if (ids.length === 0) return html;
   const { data, error } = await sb
     .from('entity_illustrations')
-    .select('id, storage_path, caption, alt_text')
+    .select('id, storage_path, caption, alt_text, updated_at')
     .in('id', ids);
   if (error || !data) return html;
   const map = new Map<string, { src: string; alt: string; caption: string | null }>();
@@ -298,8 +298,12 @@ async function hydrateChapterIllustrations(html: string): Promise<string> {
     const { data: pub } = sb.storage
       .from('illustrations')
       .getPublicUrl(row.storage_path);
+    const v = row.updated_at ? Date.parse(row.updated_at) : NaN;
+    const src = !Number.isNaN(v)
+      ? `${pub.publicUrl}${pub.publicUrl.includes('?') ? '&' : '?'}v=${v}`
+      : pub.publicUrl;
     map.set(row.id, {
-      src: pub.publicUrl,
+      src,
       alt: row.alt_text ?? row.caption ?? '',
       caption: row.caption,
     });

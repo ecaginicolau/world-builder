@@ -232,7 +232,7 @@ function FullPagePreviewPage({
       {ill ? (
         <>
           <img
-            src={publicUrlFor(ill.storage_path)}
+            src={publicUrlFor(ill.storage_path, ill.updated_at)}
             alt={ill.alt_text ?? ill.caption ?? ''}
             style={{
               maxWidth: '100%',

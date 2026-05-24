@@ -154,7 +154,7 @@ export function IllustrationPicker({
                         >
                           <div className="aspect-[4/3] w-full overflow-hidden">
                             <img
-                              src={publicUrlFor(ill.storage_path)}
+                              src={publicUrlFor(ill.storage_path, ill.updated_at)}
                               alt={ill.alt_text ?? ill.caption ?? ''}
                               className="h-full w-full object-cover transition-transform group-hover:scale-105"
                               loading="lazy"

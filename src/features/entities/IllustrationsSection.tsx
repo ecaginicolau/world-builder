@@ -4,6 +4,7 @@ import {
   useDeleteIllustration,
   useEntityIllustrations,
   useReorderIllustrations,
+  useReplaceIllustrationAsset,
   useUpdateIllustration,
   useUploadIllustration,
 } from '@/lib/queries/illustrations';
@@ -107,7 +108,7 @@ export function IllustrationsSection({ entityId, worldId }: Props) {
             >
               <div className="aspect-[4/3] w-full overflow-hidden bg-bg">
                 <img
-                  src={publicUrlFor(ill.storage_path)}
+                  src={publicUrlFor(ill.storage_path, ill.updated_at)}
                   alt={ill.alt_text ?? ill.caption ?? ''}
                   className="h-full w-full object-cover transition-transform group-hover:scale-105"
                   loading="lazy"
@@ -148,9 +149,33 @@ function IllustrationDetailModal({
   const updateMut = useUpdateIllustration();
   const deleteMut = useDeleteIllustration();
   const reorderMut = useReorderIllustrations();
+  const replaceMut = useReplaceIllustrationAsset();
   const confirm = useConfirm();
+  const alertDlg = useAlert();
+  const replaceFileRef = useRef<HTMLInputElement>(null);
   const [caption, setCaption] = useState<string>(illustration.caption ?? '');
   const [altText, setAltText] = useState<string>(illustration.alt_text ?? '');
+
+  async function onReplaceFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > MAX_BYTES) {
+      await alertDlg({
+        title: 'File too large',
+        message: `Max 10 MB. This file is ${(file.size / 1024 / 1024).toFixed(1)} MB.`,
+      });
+      return;
+    }
+    try {
+      await replaceMut.mutateAsync({ illustration, file });
+    } catch (err) {
+      await alertDlg({
+        title: 'Replace failed',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  }
 
   const idx = allIllustrations.findIndex((i) => i.id === illustration.id);
   const canMoveUp = idx > 0;
@@ -224,7 +249,7 @@ function IllustrationDetailModal({
         </div>
         <div className="flex justify-center bg-bg p-2">
           <img
-            src={publicUrlFor(illustration.storage_path)}
+            src={publicUrlFor(illustration.storage_path, illustration.updated_at)}
             alt={illustration.alt_text ?? illustration.caption ?? ''}
             className="max-h-[60vh] max-w-full object-contain"
           />
@@ -286,6 +311,24 @@ function IllustrationDetailModal({
                 ? ` · ${(illustration.byte_size / 1024).toFixed(0)} KB`
                 : ''}
             </span>
+            <button
+              type="button"
+              onClick={() => replaceFileRef.current?.click()}
+              disabled={replaceMut.isPending}
+              className="text-fg-muted hover:text-fg hover:underline disabled:opacity-50"
+              data-testid="illustration-replace"
+              title="Upload a new image to replace this one. Keeps the link in chapters."
+            >
+              {replaceMut.isPending ? 'Replacing…' : 'Replace…'}
+            </button>
+            <input
+              ref={replaceFileRef}
+              type="file"
+              accept={ACCEPT_MIME}
+              className="hidden"
+              onChange={onReplaceFileChange}
+              data-testid="illustration-replace-input"
+            />
             <button
               type="button"
               onClick={onDelete}

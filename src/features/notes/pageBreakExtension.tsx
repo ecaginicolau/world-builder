@@ -86,7 +86,9 @@ function PageBreakNodeView({ node, deleteNode, editor }: NodeViewProps) {
   // remove button visible and functional in that mode.
   const onRemove = () => runLayoutCommand(editor, () => deleteNode());
   const { data: illustration, isLoading } = useIllustration(illustrationId);
-  const url = illustration ? publicUrlFor(illustration.storage_path) : null;
+  const url = illustration
+    ? publicUrlFor(illustration.storage_path, illustration.updated_at)
+    : null;
 
   if (illustrationId) {
     return (

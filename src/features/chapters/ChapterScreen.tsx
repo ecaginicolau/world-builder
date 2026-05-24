@@ -1328,7 +1328,7 @@ function OpeningIllustrationControl({
       {openingIllustrationId && ill ? (
         <div className="flex flex-col gap-1">
           <img
-            src={publicUrlFor(ill.storage_path)}
+            src={publicUrlFor(ill.storage_path, ill.updated_at)}
             alt={ill.alt_text ?? ill.caption ?? ''}
             className="max-h-32 w-full rounded border border-border object-contain"
           />

@@ -74,7 +74,9 @@ function IllustrationNodeView({ node, deleteNode, editor }: NodeViewProps) {
   // Always show the remove button — layout commands bypass readOnly so this
   // works on a published chapter too (illustrations are layout, not text).
   const onRemove = () => runLayoutCommand(editor, () => deleteNode());
-  const url = illustration ? publicUrlFor(illustration.storage_path) : null;
+  const url = illustration
+    ? publicUrlFor(illustration.storage_path, illustration.updated_at)
+    : null;
 
   return (
     <NodeViewWrapper

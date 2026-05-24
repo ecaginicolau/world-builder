@@ -12,8 +12,14 @@ export const illustrationsKeys = {
 
 export const ILLUSTRATIONS_BUCKET = 'illustrations';
 
-export function publicUrlFor(storagePath: string): string {
-  return supabase.storage.from(ILLUSTRATIONS_BUCKET).getPublicUrl(storagePath).data.publicUrl;
+export function publicUrlFor(storagePath: string, version?: string | null): string {
+  const base = supabase.storage.from(ILLUSTRATIONS_BUCKET).getPublicUrl(storagePath).data.publicUrl;
+  if (!version) return base;
+  // Cache-bust when the row has been updated (e.g. asset replaced). Storage
+  // serves with cacheControl: 31536000, so the URL alone wouldn't refresh.
+  const v = Date.parse(version);
+  if (Number.isNaN(v)) return base;
+  return `${base}${base.includes('?') ? '&' : '?'}v=${v}`;
 }
 
 export function useEntityIllustrations(entityId: string) {
@@ -171,6 +177,62 @@ export function useUploadIllustration() {
     onSuccess: (row) => {
       void qc.invalidateQueries({ queryKey: illustrationsKeys.byEntity(row.entity_id) });
       void qc.invalidateQueries({ queryKey: illustrationsKeys.byWorld(row.world_id) });
+    },
+  });
+}
+
+/**
+ * Replace the binary asset behind an existing illustration row, preserving
+ * the row id (so chapter references via `data-illustration-id="…"` and
+ * `chapters.opening_illustration_id` keep resolving).
+ *
+ * Strategy: upload the new file at the same `storage_path` with upsert,
+ * then update the row's metadata (mime/size/dimensions). The row's
+ * `updated_at` is bumped by the trigger and used as a cache-buster on
+ * `publicUrlFor`.
+ */
+export function useReplaceIllustrationAsset() {
+  const qc = useQueryClient();
+  return useMutation<
+    EntityIllustration,
+    Error,
+    { illustration: EntityIllustration; file: File | Blob; mimeType?: string }
+  >({
+    mutationFn: async ({ illustration, file, mimeType }) => {
+      const contentType =
+        mimeType ?? (file instanceof File ? file.type : '') || illustration.mime_type;
+      const dimensions =
+        file instanceof File ? await readImageDimensions(file) : null;
+      const byteSize = file instanceof Blob ? file.size : null;
+      const { error: uploadErr } = await supabase.storage
+        .from(ILLUSTRATIONS_BUCKET)
+        .upload(illustration.storage_path, file, {
+          contentType: contentType || 'application/octet-stream',
+          upsert: true,
+          cacheControl: '31536000',
+        });
+      if (uploadErr) throw uploadErr;
+      const patch: Record<string, unknown> = {
+        mime_type: contentType || 'application/octet-stream',
+      };
+      if (byteSize !== null) patch.byte_size = byteSize;
+      if (dimensions) {
+        patch.width = dimensions.width;
+        patch.height = dimensions.height;
+      }
+      const { data, error } = await supabase
+        .from('entity_illustrations')
+        .update(patch)
+        .eq('id', illustration.id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      return data as EntityIllustration;
+    },
+    onSuccess: (row) => {
+      void qc.invalidateQueries({ queryKey: illustrationsKeys.byEntity(row.entity_id) });
+      void qc.invalidateQueries({ queryKey: illustrationsKeys.byWorld(row.world_id) });
+      void qc.invalidateQueries({ queryKey: illustrationsKeys.detail(row.id) });
     },
   });
 }

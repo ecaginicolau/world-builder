@@ -867,7 +867,7 @@ async function resolveBookIllustrations(
   if (ids.size === 0) return map;
   const { data, error } = await supabase
     .from('entity_illustrations')
-    .select('id, storage_path, caption, alt_text, width, height')
+    .select('id, storage_path, caption, alt_text, width, height, updated_at')
     .in('id', Array.from(ids));
   if (error) throw error;
   for (const row of (data ?? []) as Array<{
@@ -877,9 +877,10 @@ async function resolveBookIllustrations(
     alt_text: string | null;
     width: number | null;
     height: number | null;
+    updated_at: string | null;
   }>) {
     map.set(row.id, {
-      src: publicUrlFor(row.storage_path),
+      src: publicUrlFor(row.storage_path, row.updated_at),
       caption: row.caption,
       alt: row.alt_text ?? row.caption ?? '',
       width: row.width,
