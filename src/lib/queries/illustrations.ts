@@ -200,7 +200,7 @@ export function useReplaceIllustrationAsset() {
   >({
     mutationFn: async ({ illustration, file, mimeType }) => {
       const contentType =
-        mimeType ?? (file instanceof File ? file.type : '') || illustration.mime_type;
+        mimeType || (file instanceof File ? file.type : '') || illustration.mime_type;
       const dimensions =
         file instanceof File ? await readImageDimensions(file) : null;
       const byteSize = file instanceof Blob ? file.size : null;

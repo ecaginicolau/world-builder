@@ -99,6 +99,16 @@ interface Props {
   bookTitle: string;
 }
 
+/** Mirror of bookPdfExport's filter logic, in CSS-filter syntax, for live
+ * preview of how illustrations will look after PDF render. */
+function editionImageFilter(edition: BookEdition): string {
+  const parts: string[] = [];
+  if (edition.image_brightness !== 100) parts.push(`brightness(${edition.image_brightness / 100})`);
+  if (edition.image_contrast !== 100) parts.push(`contrast(${edition.image_contrast / 100})`);
+  if (edition.image_grayscale) parts.push('grayscale(1)');
+  return parts.join(' ') || 'none';
+}
+
 /**
  * Live HTML/CSS approximation of what the PDF will look like. Renders a
  * 2-page facing spread: a verso with running typography on the left, the
@@ -238,6 +248,7 @@ function FullPagePreviewPage({
               maxWidth: '100%',
               maxHeight: '88%',
               objectFit: 'contain',
+              filter: editionImageFilter(edition),
             }}
           />
           {ill.caption ? (

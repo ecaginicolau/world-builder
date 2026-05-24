@@ -844,6 +844,7 @@ function BookPdfDocument({
 // ── Illustrations resolver ───────────────────────────────────────────────
 async function resolveBookIllustrations(
   book: BookExportData,
+  edition: BookEdition,
 ): Promise<Map<string, IllustrationResolution>> {
   const ids = new Set<string>();
   if (book.preface) {
@@ -867,20 +868,55 @@ async function resolveBookIllustrations(
   if (ids.size === 0) return map;
   const { data, error } = await supabase
     .from('entity_illustrations')
-    .select('id, storage_path, caption, alt_text, width, height, updated_at')
+    .select('id, storage_path, caption, alt_text, width, height, mime_type, updated_at')
     .in('id', Array.from(ids));
   if (error) throw error;
-  for (const row of (data ?? []) as Array<{
+  const rows = (data ?? []) as Array<{
     id: string;
     storage_path: string;
     caption: string | null;
     alt_text: string | null;
     width: number | null;
     height: number | null;
+    mime_type: string;
     updated_at: string | null;
-  }>) {
+  }>;
+
+  const needsFilter =
+    edition.image_brightness !== 100 ||
+    edition.image_contrast !== 100 ||
+    edition.image_grayscale;
+
+  // Fast path — no filter: pass the public URL straight through.
+  if (!needsFilter) {
+    for (const row of rows) {
+      map.set(row.id, {
+        src: publicUrlFor(row.storage_path, row.updated_at),
+        caption: row.caption,
+        alt: row.alt_text ?? row.caption ?? '',
+        width: row.width,
+        height: row.height,
+      });
+    }
+    return map;
+  }
+
+  // Filtered path: download each blob, apply filter via Canvas, embed as data
+  // URL. Done in parallel; each image is independent.
+  const processed = await Promise.all(
+    rows.map(async (row) => {
+      try {
+        const dataUrl = await fetchAndFilterImage(row.storage_path, row.mime_type, edition);
+        return { row, src: dataUrl };
+      } catch {
+        // Fall back to the unfiltered public URL rather than dropping the image.
+        return { row, src: publicUrlFor(row.storage_path, row.updated_at) };
+      }
+    }),
+  );
+  for (const { row, src } of processed) {
     map.set(row.id, {
-      src: publicUrlFor(row.storage_path, row.updated_at),
+      src,
       caption: row.caption,
       alt: row.alt_text ?? row.caption ?? '',
       width: row.width,
@@ -888,6 +924,47 @@ async function resolveBookIllustrations(
     });
   }
   return map;
+}
+
+async function fetchAndFilterImage(
+  storagePath: string,
+  mimeType: string,
+  edition: BookEdition,
+): Promise<string> {
+  // Download bypasses CDN cache so the latest bytes are picked up if the user
+  // has just replaced the asset.
+  const { data, error } = await supabase.storage
+    .from('illustrations')
+    .download(storagePath);
+  if (error || !data) throw error ?? new Error('Empty download');
+  const url = URL.createObjectURL(data);
+  try {
+    const img = new window.Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Image decode failed'));
+      img.src = url;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2d context unavailable');
+    const filters: string[] = [];
+    if (edition.image_brightness !== 100)
+      filters.push(`brightness(${edition.image_brightness / 100})`);
+    if (edition.image_contrast !== 100)
+      filters.push(`contrast(${edition.image_contrast / 100})`);
+    if (edition.image_grayscale) filters.push('grayscale(1)');
+    if (filters.length > 0) ctx.filter = filters.join(' ');
+    ctx.drawImage(img, 0, 0);
+    // PNG preserves transparency, but pdf-lib + JPEG yields smaller PDFs for
+    // photographic content. Keep PNG only when the source was PNG.
+    const outMime = mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
+    return canvas.toDataURL(outMime, outMime === 'image/jpeg' ? 0.92 : undefined);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /**
@@ -932,7 +1009,7 @@ export async function buildBookPdfBlob(
   edition: BookEdition,
 ): Promise<Blob> {
   ensureFontsRegistered();
-  const illustrations = await resolveBookIllustrations(book);
+  const illustrations = await resolveBookIllustrations(book, edition);
   const raw = await pdf(
     <BookPdfDocument book={book} edition={edition} illustrations={illustrations} />,
   ).toBlob();

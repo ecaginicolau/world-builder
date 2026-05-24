@@ -106,6 +106,10 @@ export interface BookEdition {
   chapter_starts_on_recto: boolean;
   include_illustrations: boolean;
 
+  image_brightness: number;
+  image_contrast: number;
+  image_grayscale: boolean;
+
   created_at: string;
   updated_at: string;
 }

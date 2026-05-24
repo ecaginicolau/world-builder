@@ -490,6 +490,46 @@ function EditionForm({
         </Row>
       </Section>
 
+      {/* ── Illustrations ────────────────────────────────────────── */}
+      <Section title="Illustrations (non-destructive — applied at PDF render only)">
+        <Row>
+          <Field label={`Brightness (${edition.image_brightness}%)`}>
+            <input
+              type="range"
+              min={50}
+              max={200}
+              step={1}
+              value={edition.image_brightness}
+              onChange={(e) => onPatch({ image_brightness: Number(e.target.value) })}
+              className="w-full"
+              data-testid="edition-image-brightness"
+            />
+          </Field>
+          <Field label={`Contrast (${edition.image_contrast}%)`}>
+            <input
+              type="range"
+              min={50}
+              max={200}
+              step={1}
+              value={edition.image_contrast}
+              onChange={(e) => onPatch({ image_contrast: Number(e.target.value) })}
+              className="w-full"
+              data-testid="edition-image-contrast"
+            />
+          </Field>
+          <Toggle
+            label="Black & white"
+            value={edition.image_grayscale}
+            onChange={(v) => onPatch({ image_grayscale: v })}
+          />
+        </Row>
+        <p className="text-[10px] text-fg-muted">
+          Filters are applied during PDF rendering. Stored illustrations stay
+          untouched — different editions can have different tone treatments
+          (e.g. 5×8 grayscale + bright, 6×9 color + mild lift).
+        </p>
+      </Section>
+
       {/* ── Behavior ─────────────────────────────────────────────── */}
       <Section title="Behavior">
         <Row>

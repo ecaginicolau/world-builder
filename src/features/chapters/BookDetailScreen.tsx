@@ -12,6 +12,7 @@ import { formatWordCount } from '@/lib/wordCount';
 import { SharePanel } from './SharePanel';
 import { BookEditionsPanel } from './BookEditionsPanel';
 import { BackCoverPanel } from './BackCoverPanel';
+import { BrightenIllustrationsPanel } from './BrightenIllustrationsPanel';
 import { PdfPreviewModal } from './PdfPreviewModal';
 import type { BookEdition, Part } from './types';
 
@@ -372,6 +373,8 @@ export function BookDetailScreen() {
         onPreview={onPreviewPdf}
         exporting={exporting}
       />
+
+      <BrightenIllustrationsPanel bookId={bookId} worldId={worldId} />
 
       <SharePanel worldId={worldId} bookId={bookId} />
 

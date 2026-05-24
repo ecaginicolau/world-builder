@@ -72,6 +72,9 @@ export function defaultEditionDraft(name = '6×9 — Trade paperback'): Omit<
     chapter_footer_align: 'center',
     chapter_starts_on_recto: true,
     include_illustrations: true,
+    image_brightness: 100,
+    image_contrast: 100,
+    image_grayscale: false,
   };
 }
 
