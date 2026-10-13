@@ -6,7 +6,8 @@ import { withPrintBrowser } from '../packages/mcp-server/src/print/runtime';
 
 test.describe.configure({ mode: 'serial' });
 
-test('recto pagination keeps opening plates opposite chapter titles and numbers physical pages', async () => {
+for (const [width, height] of [[127, 203.2], [152.4, 228.6]]) {
+test(`recto pagination keeps opening plates opposite chapter titles and numbers physical pages (${width}mm)`, async () => {
   test.setTimeout(120_000);
   const result = await withPrintBrowser(page => page.evaluate(async defaults => {
     const bridgePath = '/src/features/chapters/mcpPrintBridge.ts';
@@ -16,7 +17,7 @@ test('recto pagination keeps opening plates opposite chapter titles and numbers 
     const ctx = canvas.getContext('2d')!;
     ctx.fillStyle = 'red'; ctx.fillRect(0, 0, 600, 900);
     const images = [{ id: 'plate', src: canvas.toDataURL(), width: 600, height: 900, caption: null, alt: null }];
-    const chapters = [1, 2, 3].map(n => ({
+    const chapters = [1, 2, 3, 4, 5].map(n => ({
       id: `c${n}`, title: `TEST${n}`, reading_rank: String(n),
       text: '<p>FIRST BODY</p><div data-page-break="true"></div><p>LAST BODY</p>',
       opening_illustration_id: n === 3 ? null : 'plate', chapter_header: null, chapter_footer: null,
@@ -33,20 +34,21 @@ test('recto pagination keeps opening plates opposite chapter titles and numbers 
       outputs.push({ mode, texts });
     }
     return outputs;
-  }, editionSettings.parse({ footer_page_numbers: true, footer_show_on_chapter_first_page: true })));
+  }, editionSettings.parse({ trim_width_mm: width, trim_height_mm: height, footer_page_numbers: true, footer_show_on_chapter_first_page: true })));
   for (const { mode, texts } of result) {
     const starts = texts.flatMap((text, i) => /Chapitre\s+\d+/.test(text) ? [i + 1] : []);
-    if (mode === 'free') { expect(starts).toEqual([3, 6, 8]); continue; }
-    expect(starts).toEqual(mode === 'recto' ? [3, 7, 9] : mode === 'no-images' ? [3, 5, 7] : [3]);
+    if (mode === 'free') { expect(starts).toEqual([3, 6, 8, 11, 14]); continue; }
+    expect(starts).toEqual(mode === 'recto' ? [3, 7, 9, 13, 17] : mode === 'no-images' ? [3, 5, 7, 9, 11] : [3]);
     expect(starts.every(n => n % 2 === 1)).toBe(true);
     for (const n of starts) expect(texts[n - 1]).toMatch(new RegExp(`\\b${n}\\s*$`));
     if (mode === 'recto' || mode === 'chapter') {
-      for (const n of starts.slice(0, 2)) expect(texts[n - 2].trim()).toBe(String(n - 1));
+      for (const n of starts.filter((_, index) => index !== 2)) expect(texts[n - 2].trim()).toBe(String(n - 1));
       expect(texts.some(t => !t.trim())).toBe(true);
     }
     if (mode === 'no-images') expect(texts.join(' ')).not.toContain('PLATE');
   }
 });
+}
 
 test('shared PDF engine produces color and monochrome interiors and page previews', async ({browserName}, testInfo) => {
   expect(browserName).toBe('chromium');

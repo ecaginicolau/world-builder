@@ -8,7 +8,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Let an open writing session adopt a new build explicitly. The React
+      // update notice registers the worker and reloads after activation.
+      registerType: 'prompt',
       includeAssets: ['icon.svg'],
       manifest: {
         name: 'World Builder',
