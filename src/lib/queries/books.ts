@@ -73,14 +73,18 @@ export function useUpdateBook() {
       id: string;
       title?: string;
       seriesTitle?: string | null;
+      volumeNumber?: number | null;
+      rank?: string;
       description?: string | null;
       backCover?: string | null;
     }
   >({
-    mutationFn: async ({ id, title, seriesTitle, description, backCover }) => {
+    mutationFn: async ({ id, title, seriesTitle, volumeNumber, rank, description, backCover }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title.trim();
       if (seriesTitle !== undefined) patch.series_title = seriesTitle;
+      if (volumeNumber !== undefined) patch.volume_number = volumeNumber;
+      if (rank !== undefined) patch.rank = rank;
       if (description !== undefined) patch.description = description;
       if (backCover !== undefined) patch.back_cover = backCover;
       const { data, error } = await supabase
@@ -94,7 +98,7 @@ export function useUpdateBook() {
     },
     onSuccess: (b) => {
       qc.setQueryData(booksKeys.detail(b.id), b);
-      void qc.invalidateQueries({ queryKey: booksKeys.byWorld(b.world_id) });
+      return qc.invalidateQueries({ queryKey: booksKeys.byWorld(b.world_id) });
     },
   });
 }

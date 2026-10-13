@@ -47,6 +47,8 @@ export function BookDetailScreen() {
   const [exporting, setExporting] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [seriesTitleDraft, setSeriesTitleDraft] = useState('');
+  const [volumeNumberDraft, setVolumeNumberDraft] = useState('');
+  const [volumeNumberError, setVolumeNumberError] = useState('');
   const [descriptionDraft, setDescriptionDraft] = useState('');
   const [previewEdition, setPreviewEdition] = useState<BookEdition | null>(null);
 
@@ -54,6 +56,7 @@ export function BookDetailScreen() {
     if (bookQ.data) {
       setTitleDraft(bookQ.data.title);
       setSeriesTitleDraft(bookQ.data.series_title ?? '');
+      setVolumeNumberDraft(bookQ.data.volume_number?.toString() ?? '');
       setDescriptionDraft(bookQ.data.description ?? '');
     }
   }, [bookQ.data]);
@@ -85,6 +88,18 @@ export function BookDetailScreen() {
     const current = book.description ?? '';
     if (trimmed === current) return;
     updateBook.mutate({ id: book.id, description: trimmed === '' ? null : trimmed });
+  }
+
+  function commitVolumeNumber() {
+    const book = bookQ.data;
+    if (!book) return;
+    const value = volumeNumberDraft.trim() === '' ? null : Number(volumeNumberDraft);
+    if (value !== null && (!Number.isInteger(value) || value < 1 || value > 2147483647)) {
+      setVolumeNumberError('Enter a whole number between 1 and 2147483647, or leave empty.');
+      return;
+    }
+    setVolumeNumberError('');
+    if (value !== (book.volume_number ?? null)) updateBook.mutate({ id: book.id, volumeNumber: value });
   }
 
   /**
@@ -241,6 +256,14 @@ export function BookDetailScreen() {
           className="mt-2 w-full bg-transparent text-xs tracking-wider text-fg-muted focus:outline-none"
           data-testid="book-series-title-input"
         />
+        <label className="mt-2 flex items-center gap-2 text-xs text-fg-muted">
+          Volume number (optional)
+          <input type="number" min="1" max="2147483647" step="1" value={volumeNumberDraft}
+            onChange={(e) => setVolumeNumberDraft(e.target.value)} onBlur={commitVolumeNumber}
+            disabled={!bookQ.data} className="w-24 px-2 py-1" data-testid="book-volume-number-input" />
+        </label>
+        {volumeNumberError ? <p role="alert" className="text-sm text-red-400">{volumeNumberError}</p> : null}
+        {updateBook.error ? <p role="alert" className="text-sm text-red-400">{updateBook.error.message}</p> : null}
         <div className="mt-1 flex items-baseline justify-between gap-3">
           <div className="flex flex-1 items-baseline gap-3">
             <input

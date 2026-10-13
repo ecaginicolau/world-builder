@@ -18,10 +18,11 @@ export function registerBooksPartsWriteTools(
         world_id: z.string().uuid(),
         title: z.string().min(1),
         series_title: z.string().nullish(),
+        volume_number: z.number().int().min(1).max(2147483647).nullish(),
         description: z.string().nullish(),
       },
     },
-    async ({ world_id, title, series_title, description }) => {
+    async ({ world_id, title, series_title, volume_number, description }) => {
       const ex = await ctx.supabase
         .from("books")
         .select("rank")
@@ -35,6 +36,7 @@ export function registerBooksPartsWriteTools(
           owner_id: ctx.ownerId,
           title: title.trim(),
           series_title: series_title ?? null,
+          volume_number: volume_number ?? null,
           description: description ?? null,
           rank,
         })
@@ -56,21 +58,25 @@ export function registerBooksPartsWriteTools(
     "update_book",
     {
       title: "Update book",
-      description: "Patch a book's title, series, description, or back cover.",
+      description: "Patch a book's title, series, volume number, list rank, description, or back cover. Volume number is independent of rank. Rank is a base-62 fractional ordering key, not a numeric position.",
       inputSchema: {
         book_id: z.string().uuid(),
         title: z.string().min(1).optional(),
         series_title: z.string().nullish(),
         description: z.string().nullish(),
         back_cover: z.string().nullish(),
+        volume_number: z.number().int().min(1).max(2147483647).nullish(),
+        rank: z.string().regex(/^[0-9A-Za-z]+$/).optional(),
       },
     },
-    async ({ book_id, title, series_title, description, back_cover }) => {
+    async ({ book_id, title, series_title, volume_number, rank, description, back_cover }) => {
       const patch: Record<string, unknown> = {};
       if (title !== undefined) patch.title = title.trim();
       if (series_title !== undefined) patch.series_title = series_title;
       if (description !== undefined) patch.description = description;
       if (back_cover !== undefined) patch.back_cover = back_cover;
+      if (volume_number !== undefined) patch.volume_number = volume_number;
+      if (rank !== undefined) patch.rank = rank;
       if (Object.keys(patch).length === 0) return fail("No fields to update");
       const r = await ctx.supabase
         .from("books")

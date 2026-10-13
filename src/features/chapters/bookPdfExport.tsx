@@ -22,7 +22,7 @@ export interface ChapterExportData {
   chapter_footer: string | null;
   /** Frontispiece — optional full-page illustration rendered as a dedicated
    * plate page IMMEDIATELY before the chapter's content. Conventionally lands
-   * on the verso of the chapter-opening spread, but parity is not enforced. */
+   * on the verso when chapter_starts_on_recto is enabled. */
   opening_illustration_id?: string | null;
   /** Override for the displayed chapter number ("Chapitre N — title"). When
    * unset, the renderer falls back to the chapter's index inside its part
@@ -71,10 +71,9 @@ export interface BookExportData {
  *      then post-process the PDF with pdf-lib to shift each page horizontally
  *      by ±(inside-outside)/2 based on parity. See `applyMirrorMarginShift`.
  *
- *   2. `chapter_starts_on_recto` is NOT enforced — there is no way to
- *      conditionally insert a blank page from the React tree (parity is only
- *      known at layout time, after the tree is committed). Users wanting strict
- *      recto starts can use the manual page-break block.
+ *   2. Recto starts use a measurement pass followed by a render with blank
+ *      pages before the frontispieces. Numbering and mirror margins therefore
+ *      use the final physical page numbers.
  *
  *   3. Hyphenation is disabled (no FR dictionary). Justified text may show
  *      visible "rivers" on short body widths.
@@ -393,10 +392,14 @@ function BookPdfDocument({
   book,
   edition,
   illustrations,
+  blankBefore = new Set<string>(),
+  chapterStarts,
 }: {
   book: BookExportData;
   edition: BookEdition;
   illustrations: Map<string, IllustrationResolution>;
+  blankBefore?: Set<string>;
+  chapterStarts?: Map<string, number>;
 }) {
   const trimWidth = mm(edition.trim_width_mm);
   const trimHeight = mm(edition.trim_height_mm);
@@ -496,7 +499,7 @@ function BookPdfDocument({
     // Frontispiece — emit a dedicated plate page before any chapter content.
     // Same treatment as inline illustration pages (no header, page number
     // visible, image centered with mirror margins).
-    if (chapter.opening_illustration_id) {
+    if (edition.include_illustrations && chapter.opening_illustration_id) {
       const ill = illustrations.get(chapter.opening_illustration_id);
       const innerH = trimHeight - padTop - padBottom;
       const dims = ill?.src
@@ -578,6 +581,7 @@ function BookPdfDocument({
 
     segments.forEach((segment, segIdx) => {
       if (segment.kind === 'illustration_page') {
+        if (!edition.include_illustrations) return;
         const ill = illustrations.get(segment.illustrationId);
         const innerH = trimHeight - padTop - padBottom;
         const dims = ill?.src
@@ -657,6 +661,41 @@ function BookPdfDocument({
 
       const isFirstSegment = segIdx === 0;
       const isLastContentSegment = segIdx === lastContentSegIdx;
+      // Empty paragraphs at a plate boundary must not create an empty page.
+      // Keep a modest prose tail together with the chapter's closing accounts.
+      const contentBlocks = [...segment.blocks];
+      while (contentBlocks.length) {
+        const last = contentBlocks[contentBlocks.length - 1];
+        if (last.kind !== 'paragraph' || last.runs.some((r) => r.text.trim())) break;
+        contentBlocks.pop();
+      }
+      const closing = isLastContentSegment && chapter.chapter_footer?.trim()
+        ? renderFraming(
+            chapter.chapter_footer, illustrations, edition.chapter_footer_align,
+            edition.chapter_footer_italic, edition.chapter_footer_font,
+            edition.chapter_footer_size_pt, 10, 0, `cf-${chapter.id}`,
+          )
+        : null;
+      const innerHeight = trimHeight - padTop - padBottom;
+      const closingLength = isLastContentSegment
+        ? (chapter.chapter_footer ?? '').replace(/<[^>]+>/g, ' ').length : 0;
+      const closingEstimate = closing
+        ? 10 + Math.ceil(closingLength * edition.chapter_footer_size_pt * 0.55 / innerWidth)
+          * edition.chapter_footer_size_pt * 1.3 + 20
+        : 0;
+      let tailStart = contentBlocks.length;
+      let tailHeight = 0;
+      while (tailStart > 0 && tailHeight < Math.min(180, innerHeight * 0.35)) {
+        const block = contentBlocks[tailStart - 1];
+        if (block.kind !== 'paragraph') break;
+        const chars = block.runs.reduce((sum, run) => sum + run.text.length, 0);
+        const estimate = Math.max(1, Math.ceil(chars * edition.body_font_size_pt * 0.55 / innerWidth))
+          * edition.body_font_size_pt * edition.body_line_height + 4;
+        // Long prose or framing must remain splittable on small trim sizes.
+        if (tailHeight + estimate + closingEstimate > innerHeight * 0.6) break;
+        tailHeight += estimate;
+        tailStart--;
+      }
       const ctx: RenderCtx = {
         edition,
         innerWidthPt: innerWidth,
@@ -706,6 +745,13 @@ function BookPdfDocument({
               ))
             : null}
 
+          {isFirstSegment && chapterStarts ? (
+            <Text fixed style={{ position: 'absolute', top: 0, fontSize: 1 }}
+              render={({ pageNumber, subPageNumber }) => {
+                if (subPageNumber === 1) chapterStarts.set(chapter.id, pageNumber);
+                return '';
+              }} />
+          ) : null}
           {isFirstSegment ? (
             <Text
               style={{
@@ -737,23 +783,13 @@ function BookPdfDocument({
               )
             : null}
 
-          {segment.blocks.map((b, i) => renderBlock(b, i, ctx))}
-
-          {isLastContentSegment &&
-          chapter.chapter_footer &&
-          chapter.chapter_footer.trim()
-            ? renderFraming(
-                chapter.chapter_footer,
-                illustrations,
-                edition.chapter_footer_align,
-                edition.chapter_footer_italic,
-                edition.chapter_footer_font,
-                edition.chapter_footer_size_pt,
-                10,
-                0,
-                `cf-${chapter.id}`,
-              )
-            : null}
+          {contentBlocks.slice(0, tailStart).map((b, i) => renderBlock(b, i, ctx))}
+          {tailStart < contentBlocks.length ? (
+            <View wrap={false}>
+              {contentBlocks.slice(tailStart).map((b, i) => renderBlock(b, tailStart + i, ctx))}
+              {closing}
+            </View>
+          ) : closing}
 
           {edition.footer_page_numbers
             ? (['left', 'center', 'right'] as const).map((slot) => (
@@ -834,6 +870,9 @@ function BookPdfDocument({
       const chapterTitle = chapter.title
         ? `Chapitre ${displayedNumber} — ${chapter.title}`
         : `Chapitre ${displayedNumber}`;
+      if (blankBefore.has(chapter.id)) {
+        pages.push(<Page key={`blank-${chapter.id}`} size={[trimWidth, trimHeight]} />);
+      }
       pages.push(...renderChapterUnit(chapter, chapterTitle, chapter.id));
     }
   }
@@ -1007,12 +1046,36 @@ async function applyMirrorMarginShift(blob: Blob, edition: BookEdition): Promise
 export async function buildBookPdfBlob(
   book: BookExportData,
   edition: BookEdition,
+  resolvedIllustrations?: Map<string, IllustrationResolution>,
 ): Promise<Blob> {
   ensureFontsRegistered();
-  const illustrations = await resolveBookIllustrations(book, edition);
-  const raw = await pdf(
-    <BookPdfDocument book={book} edition={edition} illustrations={illustrations} />,
+  const illustrations = resolvedIllustrations ?? await resolveBookIllustrations(book, edition);
+  const starts = new Map<string, number>();
+  let raw = await pdf(
+    <BookPdfDocument book={book} edition={edition} illustrations={illustrations}
+      chapterStarts={edition.chapter_starts_on_recto ? starts : undefined} />,
   ).toBlob();
+  if (edition.chapter_starts_on_recto) {
+    const blankBefore = new Set<string>();
+    let offset = 0;
+    for (const chapter of book.parts.flatMap((part) => part.chapters)) {
+      const start = starts.get(chapter.id);
+      if (start === undefined) throw new Error(`Missing chapter pagination: ${chapter.id}`);
+      if ((start + offset) % 2 === 0) {
+        blankBefore.add(chapter.id);
+        offset++;
+      }
+    }
+    if (blankBefore.size) {
+      starts.clear();
+      raw = await pdf(<BookPdfDocument book={book} edition={edition}
+        illustrations={illustrations} blankBefore={blankBefore} chapterStarts={starts} />).toBlob();
+    }
+    for (const chapter of book.parts.flatMap((part) => part.chapters)) {
+      const start = starts.get(chapter.id);
+      if (!start || start % 2 !== 1) throw new Error(`Chapter must start on recto: ${chapter.id}`);
+    }
+  }
   return applyMirrorMarginShift(raw, edition);
 }
 

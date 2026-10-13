@@ -1,5 +1,11 @@
 # Next Steps
 
+## Status (2026-10-12 — outils MCP d’impression)
+
+Ajout de 14 outils MCP : éditions (lecture/création/copie/modification), galeries et pixels des illustrations, import/remplacement, lecture/édition des placements, inventaire des usages, PDF chapitre/livre et rendu PNG d’une page. Le moteur PDF de l’application est partagé avec un navigateur isolé ; préflight pour intérieurs KDP 5×8 / 6×9 sans fond perdu. Voir [le parcours MCP complet](./demo/mcp-print-workflow.md).
+
+**Validé le 12 octobre :** migration V025 appliquée et Chromium installé. Le test réel `node packages/mcp-server/scripts/smoke-layout.mjs --live` passe ses 14 contrôles : redémarrage STDIO, éditions, imports idempotents, écritures de mise en page sur chapitre publié, conservation du texte et des versions, refus des révisions obsolètes et écritures concurrentes, PDF chapitre couleur et livre monochrome. Les données temporaires de base et de stockage sont supprimées après le test. World Builder est enregistré dans la configuration locale de Codex via `packages/mcp-server/start-local.mjs` ; recharger le serveur dans les paramètres MCP de l’application pour actualiser les outils de la conversation.
+
 Document vivant — TODO + liens vers les docs thématiques. Mis à jour au fil des discussions.
 
 ## Status (2026-05-10, slice book-editions — mise en page imprimable KDP-ready + WYSIWYG live preview livrés)

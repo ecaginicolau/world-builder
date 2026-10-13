@@ -5,6 +5,7 @@ export interface Book {
   rank: string;
   title: string;
   series_title: string | null;
+  volume_number: number | null;
   description: string | null;
   back_cover: string | null;
   created_at: string;

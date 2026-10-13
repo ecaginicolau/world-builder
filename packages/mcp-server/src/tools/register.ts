@@ -16,6 +16,10 @@ import { registerBooksPartsWriteTools } from "./booksPartsWrite.js";
 import { registerLinksWriteTools } from "./linksWrite.js";
 import { registerReaderAnnotationsWriteTools } from "./readerAnnotationsWrite.js";
 import { registerIntentsTools } from "./intents.js";
+import { registerEditionTools } from './editions.js';
+import { registerIllustrationTools } from './illustrations.js';
+import { registerLayoutTools } from './layout.js';
+import { registerPrintTools } from './print.js';
 
 export function registerAllTools(server: McpServer, ctx: ServerContext) {
   // Reads
@@ -39,4 +43,8 @@ export function registerAllTools(server: McpServer, ctx: ServerContext) {
 
   // Intents — LLM-driven (auto_extract, propose_canon, upscale, summarize).
   registerIntentsTools(server, ctx);
+  registerEditionTools(server, ctx);
+  registerIllustrationTools(server, ctx);
+  registerLayoutTools(server, ctx);
+  registerPrintTools(server, ctx);
 }

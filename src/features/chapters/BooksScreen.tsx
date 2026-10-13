@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useWorld } from '@/lib/queries/worlds';
-import { useBooks, useCreateBook, useDeleteBook } from '@/lib/queries/books';
+import { useBooks, useCreateBook, useDeleteBook, useUpdateBook } from '@/lib/queries/books';
+import { rankForMoveDown, rankForMoveUp } from '@/features/timeline/timelineItems';
 import { useSession } from '@/features/auth/session';
 import { useConfirm } from '@/lib/useConfirm';
 
@@ -12,8 +13,17 @@ export function BooksScreen() {
   const booksQ = useBooks(worldId);
   const createBook = useCreateBook();
   const deleteBook = useDeleteBook();
+  const updateBook = useUpdateBook();
   const confirm = useConfirm();
   const [title, setTitle] = useState('');
+
+  function moveBook(index: number, direction: 'up' | 'down') {
+    const books = booksQ.data;
+    if (!books || updateBook.isPending) return;
+    const ranks = books.map((book) => book.rank);
+    const rank = direction === 'up' ? rankForMoveUp(ranks, index) : rankForMoveDown(ranks, index);
+    if (rank !== null) updateBook.mutate({ id: books[index].id, rank });
+  }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -79,6 +89,8 @@ export function BooksScreen() {
         </p>
       ) : null}
 
+      {updateBook.error ? <p role="alert" className="text-sm text-red-400">{updateBook.error.message}</p> : null}
+
       {booksQ.isLoading ? (
         <p className="text-fg-muted">Loading…</p>
       ) : booksQ.data && booksQ.data.length === 0 ? (
@@ -87,7 +99,7 @@ export function BooksScreen() {
         </p>
       ) : booksQ.data ? (
         <ul className="space-y-2" data-testid="books-list">
-          {booksQ.data.map((b) => (
+          {booksQ.data.map((b, index) => (
             <li
               key={b.id}
               className="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-panel"
@@ -99,11 +111,22 @@ export function BooksScreen() {
                 className="flex-1 px-4 py-3 hover:bg-bg-subtle"
                 data-testid="book-link"
               >
+                <div className="text-xs text-fg-muted">
+                  {b.series_title ? `${b.series_title} · ` : ''}
+                  {b.volume_number != null ? `Tome ${b.volume_number} · ` : ''}
+                  Position {index + 1}
+                </div>
                 <div className="font-medium">{b.title}</div>
                 {b.description ? (
                   <div className="text-xs text-fg-muted">{b.description}</div>
                 ) : null}
               </Link>
+              <div className="flex flex-col">
+                <button type="button" aria-label={`Move ${b.title} up`} disabled={index === 0 || updateBook.isPending}
+                  onClick={() => moveBook(index, 'up')} className="px-3 py-1 disabled:opacity-30">↑</button>
+                <button type="button" aria-label={`Move ${b.title} down`} disabled={index === booksQ.data.length - 1 || updateBook.isPending}
+                  onClick={() => moveBook(index, 'down')} className="px-3 py-1 disabled:opacity-30">↓</button>
+              </div>
               <button
                 type="button"
                 onClick={() => onDelete(b.id, b.title)}

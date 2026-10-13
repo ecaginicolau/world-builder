@@ -534,7 +534,7 @@ function EditionForm({
       <Section title="Behavior">
         <Row>
           <Toggle
-            label="Chapters start on recto (right page) — V1: not enforced, use manual page breaks"
+            label="Chapters start on recto (right page), facing the opening illustration"
             value={edition.chapter_starts_on_recto}
             onChange={(v) => onPatch({ chapter_starts_on_recto: v })}
           />

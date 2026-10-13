@@ -90,3 +90,5 @@ playwright/.cache/
 
 # MCP server config (contains service role key — see .mcp.json.example)
 .mcp.json
+# Local manuscripts, generated images, and PDF exports
+output/

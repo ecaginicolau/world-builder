@@ -15,7 +15,7 @@ export function registerBooksReadTools(server: McpServer, ctx: ServerContext) {
     async ({ world_id }) => {
       const bRes = await ctx.supabase
         .from("books")
-        .select("id, title, description, back_cover, rank, created_at, updated_at")
+        .select("id, title, series_title, volume_number, description, back_cover, rank, created_at, updated_at")
         .eq("world_id", world_id)
         .eq("owner_id", ctx.ownerId)
         .order("rank", { ascending: true });
@@ -23,6 +23,8 @@ export function registerBooksReadTools(server: McpServer, ctx: ServerContext) {
       const books = (bRes.data ?? []) as Array<{
         id: string;
         title: string;
+        series_title: string | null;
+        volume_number: number | null;
         description: string | null;
         back_cover: string | null;
         rank: string;
