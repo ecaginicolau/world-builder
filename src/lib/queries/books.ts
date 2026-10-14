@@ -18,7 +18,9 @@ export function useBooks(worldId: string) {
         .eq('world_id', worldId)
         .order('rank', { ascending: true });
       if (error) throw error;
-      return (data ?? []) as Book[];
+      // Fractional ranks use ASCII order (A-Z before a-z), unlike the
+      // database's locale collation. Move calculations must see this order.
+      return ((data ?? []) as Book[]).sort((a, b) => a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0);
     },
     enabled: !!worldId,
   });

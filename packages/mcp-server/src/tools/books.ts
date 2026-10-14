@@ -32,6 +32,8 @@ export function registerBooksReadTools(server: McpServer, ctx: ServerContext) {
         updated_at: string;
       }>;
       if (books.length === 0) return ok([]);
+      // Match the ASCII ordering used by fractional rank generation.
+      books.sort((a, b) => a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0);
 
       const pRes = await ctx.supabase
         .from("parts")
